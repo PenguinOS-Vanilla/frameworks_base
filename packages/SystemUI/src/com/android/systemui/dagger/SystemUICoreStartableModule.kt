@@ -21,6 +21,7 @@ import com.android.systemui.CoreStartable
 import com.android.systemui.LatencyTester
 import com.android.systemui.SliceBroadcastRelayHandler
 import com.android.systemui.accessibility.Magnification
+import com.android.systemui.ax.AxPlatformServiceImpl
 import com.android.systemui.back.domain.interactor.BackActionInteractor
 import com.android.systemui.biometrics.BiometricNotificationService
 import com.android.systemui.bouncer.domain.startable.BouncerStartable
@@ -35,6 +36,7 @@ import com.android.systemui.dreams.homecontrols.system.HomeControlsDreamStartabl
 import com.android.systemui.globalactions.GlobalActionsComponent
 import com.android.systemui.haptics.msdl.MSDLCoreStartable
 import com.android.systemui.keyboard.KeyboardUI
+import com.android.systemui.hotspot.HotspotDataLimitController
 import com.android.systemui.keyboard.PhysicalKeyboardCoreStartable
 import com.android.systemui.keyevent.SysUIKeyGestureEventInitializer
 import com.android.systemui.keyguard.KeyguardViewConfigurator
@@ -50,6 +52,7 @@ import com.android.systemui.media.taptotransfer.receiver.MediaTttChipControllerR
 import com.android.systemui.media.taptotransfer.sender.MediaTttSenderCoordinator
 import com.android.systemui.mediaprojection.taskswitcher.MediaProjectionTaskSwitcherCoreStartable
 import com.android.systemui.shortcut.ShortcutKeyDispatcher
+import com.android.systemui.smartpixel.ui.SmartPixelManager
 import com.android.systemui.statusbar.ImmersiveModeConfirmation
 import com.android.systemui.statusbar.gesture.GesturePointerEventListener
 import com.android.systemui.statusbar.notification.InstantAppNotifier
@@ -57,8 +60,10 @@ import com.android.systemui.statusbar.notification.headsup.StatusBarHeadsUpChang
 import com.android.systemui.stylus.StylusUsiPowerStartable
 import com.android.systemui.temporarydisplay.chipbar.ChipbarCoordinator
 import com.android.systemui.usb.StorageNotification
-import com.android.systemui.util.NotificationChannels
+import com.android.systemui.doze.ShakeAodController
 import com.android.systemui.wmshell.WMShell
+import com.google.android.systemui.smartspace.KeyguardSmartspaceStartable
+import com.android.systemui.util.NotificationChannels
 import dagger.Binds
 import dagger.Module
 import dagger.multibindings.ClassKey
@@ -328,5 +333,34 @@ abstract class SystemUICoreStartableModule {
     @ClassKey(SysUIKeyGestureEventInitializer::class)
     abstract fun bindSysUIKeyGestureEventInitializer(
         keyGestureEventInitializer: SysUIKeyGestureEventInitializer
+    ): CoreStartable
+
+    /** Inject into KeyguardSmartspaceStartable. */
+    @Binds
+    @IntoMap
+    @ClassKey(KeyguardSmartspaceStartable::class)
+    abstract fun bindKeyguardSmartspaceStartable(impl: KeyguardSmartspaceStartable): CoreStartable
+
+    @Binds
+    @IntoMap
+    @ClassKey(AxPlatformServiceImpl::class)
+    abstract fun bindAxPlatformService(impl: AxPlatformServiceImpl): CoreStartable
+
+    @Binds
+    @IntoMap
+    @ClassKey(ShakeAodController::class)
+    abstract fun bindShakeAodController(impl: ShakeAodController): CoreStartable
+
+    /** Inject into HotspotDataLimitController. */
+    @Binds
+    @IntoMap
+    @ClassKey(HotspotDataLimitController::class)
+    abstract fun bindHotspotDataLimitController(impl: HotspotDataLimitController): CoreStartable
+
+    @Binds
+    @IntoMap
+    @ClassKey(SmartPixelManager::class)
+    abstract fun bindSmartPixelManager(
+        impl: SmartPixelManager
     ): CoreStartable
 }
