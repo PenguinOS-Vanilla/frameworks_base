@@ -353,6 +353,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 
 import com.android.qcomfeatureconfig.QcomLowRamConfig;
+import vendor.qti.applauncher.AppLauncherService;
 
 /**
  * Entry point to {@code system_server}.
@@ -2010,6 +2011,15 @@ public final class SystemServer implements Dumpable {
             }
         }
 
+        t.traceBegin("StartAppLauncherService");
+                try {
+                    Slog.i(TAG , "*****************SystemServer Add AppLauncherService Service*************************");
+                    ServiceManager.addService("vendor.qti.appLauncherService.IAppLauncherService/default", new AppLauncherService(context));
+                }catch (Throwable e) {
+                    Slog.e(TAG , "Failure starting AppLauncherService", e);
+                }
+        t.traceEnd();
+
         // We start this here so that we update our configuration to set watch or television
         // as appropriate.
         t.traceBegin("StartUiModeManager");
@@ -2892,15 +2902,13 @@ public final class SystemServer implements Dumpable {
             }
 
             // Start this service after all biometric sensor services are started.
-            if (!QcomLowRamConfig.TARGET_IS_QLMD) {
-                t.traceBegin("StartBiometricService");
-                mSystemServiceManager.startService(BiometricService.class);
-                t.traceEnd();
+            t.traceBegin("StartBiometricService");
+            mSystemServiceManager.startService(BiometricService.class);
+            t.traceEnd();
 
-                t.traceBegin("StartAuthService");
-                mSystemServiceManager.startService(AuthService.class);
-                t.traceEnd();
-            }
+            t.traceBegin("StartAuthService");
+            mSystemServiceManager.startService(AuthService.class);
+            t.traceEnd();
 
             if (!isWatch && !isTv && !isAutomotive) {
                 if (android.security.Flags.secureLockdown()) {
@@ -3237,11 +3245,9 @@ public final class SystemServer implements Dumpable {
         }
 
         // NOTE: ClipboardService depends on ContentCapture and Autofill
-        if (!QcomLowRamConfig.TARGET_IS_QLMD) {
-            t.traceBegin("StartClipboardService");
-            mSystemServiceManager.startService(ClipboardService.class);
-            t.traceEnd();
-        }
+        t.traceBegin("StartClipboardService");
+        mSystemServiceManager.startService(ClipboardService.class);
+        t.traceEnd();
 
         if (!isTv && !isWatch) {
             // Selection toolbar service
