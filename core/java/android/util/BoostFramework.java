@@ -217,6 +217,7 @@ public class BoostFramework {
     public static final int MPCTLV3_GPU_IS_APP_BG = 0X42824000;
 
     public static final int VENDOR_EVENT_ACTIVITY_WINDOW_MODE_UPDATE = 0x00001066;
+    public static final int VENDOR_EVENT_KILL_ABNORMAL = 0x00001068;
 
     public class ActivityWindowMode {
         public static int STANDARD = 0;
