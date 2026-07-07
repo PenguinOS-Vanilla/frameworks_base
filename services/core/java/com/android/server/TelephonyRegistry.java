@@ -4208,13 +4208,6 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                     return;
                 }
                 mNetworkSecurityEvents.set(phoneId, events);
-                if (events.isEmpty()) {
-                    loge(
-                            "NetworkSecurityEvent is empty, subId=" + subId
-                            + ", phoneId=" + phoneId);
-                    // Listeners shouldn't be updated for empty events.
-                    return;
-                }
 
                 for (Record r : mRecords) {
                     if (r.matchTelephonyCallbackEvent(
