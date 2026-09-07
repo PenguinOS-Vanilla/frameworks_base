@@ -30,6 +30,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -105,14 +107,21 @@ constructor(
 
         val pagerState = rememberPagerState(0) { pages.size }
 
-        LaunchedEffect(listening, pagerState) {
-            snapshotFlow { listening() }
-                .collect {
+        /* Keyed on the pager alone, and reading the callback through rememberUpdatedState, because
+         * callers build this lambda from their view model and hand over a new instance on every
+         * recomposition. Keying on it restarted the effect each time, and a restarted snapshotFlow
+         * re-emits straight away - which threw the panel back to the first page whenever anything
+         * recomposed while a later page was open, dragging the shade included.
+         */
+        val currentListening by rememberUpdatedState(listening)
+        LaunchedEffect(pagerState) {
+            snapshotFlow { currentListening() }
+                .collect { isListening ->
                     // Whenever we go from not listening to listening, we should be in the first
                     // page. If we did this when going from listening to not listening, opening
                     // edit mode in second page will cause it to go to first page during the
                     // transition.
-                    if (listening()) {
+                    if (isListening) {
                         pagerState.scrollToPage(0)
                     }
                 }

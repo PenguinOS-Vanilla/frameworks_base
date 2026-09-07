@@ -432,7 +432,10 @@ private fun ContentScope.QuickSettingsLayout(
                 }
                 Box(modifier = Modifier.weight(1f)) {
                     Element(key = QuickSettings.Elements.BrightnessSlider, modifier = Modifier) {
-                        val tileHeight = dimensionResource(id = R.dimen.custom_qs_tile_height)
+                        // common_tile_default_tile_height, not custom_qs_tile_height: the grid lays its tiles out
+                        // at the former (custom_qs_tile_height only sizes the edit mode placeholders), so taking
+                        // the latter made the sliders 8dp taller than the two tiles they sit beside.
+                        val tileHeight = dimensionResource(id = R.dimen.common_tile_default_tile_height)
                         val tileSpacing = dimensionResource(id = R.dimen.qs_tile_margin_vertical)
                         val headerHeight = tileHeight * 2 + tileSpacing
                         Row(
