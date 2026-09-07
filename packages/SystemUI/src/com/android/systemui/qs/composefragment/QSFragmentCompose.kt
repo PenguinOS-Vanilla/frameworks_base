@@ -139,6 +139,7 @@ import com.android.compose.modifiers.height
 import com.android.compose.modifiers.padding
 import com.android.compose.modifiers.thenIf
 import com.android.compose.theme.LocalAndroidColorScheme
+import com.android.systemui.qs.shared.style.isStockQsStyle
 import com.android.compose.theme.PlatformTheme
 import com.android.settingslib.display.BrightnessUtils.GAMMA_SPACE_MAX
 import com.android.settingslib.display.BrightnessUtils.GAMMA_SPACE_MIN
@@ -1441,7 +1442,10 @@ private fun ContentScope.Header(
     enabled: Boolean,
     leftContent: @Composable () -> Unit = {}
 ) {
-    val tileHeight = dimensionResource(id = R.dimen.custom_qs_tile_height)
+    // common_tile_default_tile_height, not custom_qs_tile_height: the grid lays its tiles out
+    // at the former (custom_qs_tile_height only sizes the edit mode placeholders), so taking
+    // the latter made the sliders 8dp taller than the two tiles they sit beside.
+    val tileHeight = dimensionResource(id = R.dimen.common_tile_default_tile_height)
     val tileSpacing = dimensionResource(id = R.dimen.qs_tile_margin_vertical)
     val headerHeight = tileHeight * 2 + tileSpacing
     val horizontalSpacing = dimensionResource(id = R.dimen.qs_tile_margin_horizontal)
@@ -1790,22 +1794,44 @@ fun VerticalSlider(
     housingHeight: Dp,
 ) {
     val housingWidth = 75.dp
+    val iconSize = 24.dp
+    val iconBottomPadding = 16.dp
+
+    // The icon is pinned to the foot of the pill, so the fill covers it as soon as it passes the
+    // bottom (iconBottomPadding + iconSize) of the housing. Tint against whichever of the two it is
+    // sitting on: onSurface is invisible on the light Monet fill, onPrimary is invisible off it.
+    val iconCoveredFraction =
+        if (housingHeight > 0.dp) (iconBottomPadding + iconSize) / housingHeight else 0f
+    val iconTint =
+        if (value > iconCoveredFraction) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        }
 
     Box(
         modifier = modifier
             .width(housingWidth)
             .height(housingHeight)
             .clip(RoundedCornerShape(percent = 50)) // Pill shape
-            .background(LocalAndroidColorScheme.current.surfaceEffect1.copy(alpha = 0.45f))
+            .background(
+                LocalAndroidColorScheme.current.surfaceEffect1.copy(
+                    alpha = if (isStockQsStyle) 1f else 0.45f
+                )
+            )
             .sliderGestures(scope, onValueChanged, onValueChangeFinished, onLongPress),
         contentAlignment = Alignment.BottomCenter
     ) {
-        // Progress Fill
+        // Progress Fill. Cap the top corners to the fill's own half-height: a fixed radius wider
+        // than the fill is tall rounds the two corners into each other and the bar renders as a
+        // lens at low brightness/volume instead of a flat topped bar.
+        val fillHeight = housingHeight * value
+        val fillCapRadius = (housingWidth / 2).coerceAtMost(fillHeight / 2)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(value)
-                .clip(RoundedCornerShape(topStart = 40.dp, topEnd = 40.dp))
+                .clip(RoundedCornerShape(topStart = fillCapRadius, topEnd = fillCapRadius))
                 .background(
                     color = MaterialTheme.colorScheme.primary // Changed from .surface for active color
                 )
@@ -1815,10 +1841,10 @@ fun VerticalSlider(
         Icon(
             painter = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurface, // Changed from .onSurfaceVariant for icon color
+            tint = iconTint,
             modifier = Modifier
-                .padding(bottom = 16.dp)
-                .size(24.dp)
+                .padding(bottom = iconBottomPadding)
+                .size(iconSize)
         )
     }
 }

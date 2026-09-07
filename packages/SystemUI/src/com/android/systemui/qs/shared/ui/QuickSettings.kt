@@ -44,6 +44,23 @@ object QuickSettings {
 
         val TileElementMatcher = ElementKey.withIdentity { it is TileIdentity }
 
+        /**
+         * The tiles that the Penguin panel style hoists out of the grid and into the header, next
+         * to the brightness and volume sliders. They are rendered by both the shade scene (QQS) and
+         * the quick settings scene, at different offsets, so they need a shared element key of
+         * their own: relying on the per-tile keys is not enough, because those are only shared when
+         * [com.android.systemui.qs.panels.ui.viewmodel.AnimateQsTilesViewModel.animateQsTiles] is
+         * `true`, and both copies get drawn when it is not.
+         */
+        val HeaderTiles =
+            ElementKey("QuickSettingsHeaderTiles", contentPicker = SharedQsTileContentPicker)
+
+        /**
+         * Shared by the QQS and QS copies of the connectivity folder so the scene framework morphs
+         * one into the other instead of composing both and drawing them on top of each other.
+         */
+        val ConnectivityFolder = ElementKey("ConnectivityFolder")
+
         val QuickQuickSettingsAndMedia = ElementKey("QuickQuickSettingsAndMedia")
         val SplitShadeQuickSettings = ElementKey("SplitShadeQuickSettings")
     }
