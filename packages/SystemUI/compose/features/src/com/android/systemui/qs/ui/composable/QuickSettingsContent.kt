@@ -47,6 +47,14 @@ import com.android.systemui.media.remedia.ui.compose.MediaPresentationStyle
 import com.android.systemui.qs.composefragment.BrightnessLayout
 import com.android.systemui.qs.composefragment.ConnectivityFolder
 import com.android.systemui.qs.composefragment.connectivityFolderEnabled
+import com.android.systemui.qs.composefragment.POSITION_ABOVE_GRID
+import com.android.systemui.qs.composefragment.POSITION_BELOW_GRID
+import com.android.systemui.qs.composefragment.POSITION_HEADER
+import com.android.systemui.qs.composefragment.SETTING_QS_FOLDER_POSITION
+import com.android.systemui.qs.composefragment.SETTING_QS_FOLDER_SPAN
+import com.android.systemui.qs.composefragment.SETTING_QS_MEDIA_POSITION
+import com.android.systemui.qs.composefragment.SETTING_QS_MEDIA_SPAN
+import com.android.systemui.qs.composefragment.secureIntSetting
 import com.android.systemui.qs.composefragment.VolumeLayout
 import com.android.systemui.qs.composefragment.ui.GridAnchor
 import com.android.systemui.qs.panels.ui.compose.TileGrid
@@ -87,14 +95,44 @@ private fun ContentScope.PenguinQuickSettingsContent(
         viewModel.tileGridViewModel.tileViewModels.take(2).map { it.spec }
     }
     val folderEnabled = connectivityFolderEnabled()
-    // Hoisted: the collapsed card lives in the header's half-width slot but the expanded list has
-    // to be rendered by the tiles slot at full panel width.
+    // Hoisted: the collapsed card lives in the header's half-width slot but the expanded sheet
+    // takes over the whole panel.
     var folderExpanded by remember { mutableStateOf(false) }
+    val folderSpan = secureIntSetting(SETTING_QS_FOLDER_SPAN, 1)
+    val mediaSpan = secureIntSetting(SETTING_QS_MEDIA_SPAN, 1)
+    val folderPosition = secureIntSetting(SETTING_QS_FOLDER_POSITION, POSITION_HEADER)
+    val mediaPosition = secureIntSetting(SETTING_QS_MEDIA_POSITION, POSITION_HEADER)
+    // A full width element cannot share the header row with the sliders.
+    val headerShowsFolder =
+        folderEnabled && folderSpan < 2 && mediaSpan < 2 && folderPosition == POSITION_HEADER
+    // Only the header tile grid duplicates tiles out of the main grid; the folder and media do not.
+    // Getting this wrong composes the same ElementKey twice in the scene, which throws.
+    val headerShowsTop2Tiles = !headerShowsFolder && !headerShowsMedia
+
+    if (folderEnabled && folderExpanded) {
+        // Control Centre expands a module in place over the panel rather than pushing the rest
+        // down, so the sheet replaces the panel content instead of being appended under it.
+        Column(
+            modifier =
+                modifier
+                    .element(Elements.QuickSettingsContent)
+                    .padding(horizontal = dimensionResource(id = R.dimen.qs_horizontal_margin))
+                    .sysuiResTag("quick_settings_panel")
+        ) {
+            ConnectivityFolder(
+                tiles = viewModel.tileGridViewModel.tileViewModels,
+                modifier = Modifier.element(Elements.ConnectivityFolder),
+                expanded = true,
+                onExpandedChange = { folderExpanded = it },
+            )
+        }
+        return
+    }
 
     PenguinQuickSettingsPanelLayout(
         headerLeft =
             @Composable {
-                if (folderEnabled) {
+                if (headerShowsFolder) {
                     // Takes the header slot beside the sliders, like Control Centre. It keeps this
                     // slot even while media is playing; media moves to its own row below instead of
                     // evicting the folder and taking its tiles with it.
@@ -104,7 +142,7 @@ private fun ContentScope.PenguinQuickSettingsContent(
                         tiles = viewModel.tileGridViewModel.tileViewModels,
                         modifier = Modifier.element(Elements.ConnectivityFolder),
                         compactHeight = tileHeight * 2 + tileSpacing,
-                        // Always collapsed here; expanding swaps the grid below for the full list.
+                        // Always collapsed here; expanding takes over the whole panel.
                         expanded = false,
                         onExpandedChange = { folderExpanded = it },
                     )
@@ -174,45 +212,49 @@ private fun ContentScope.PenguinQuickSettingsContent(
                     onStopOrDispose { listening = false }
                 }
 
-                // With the folder holding the header slot the top two tiles are no longer shown
-                // up there, so they have to stay in the grid.
-                val excludeSpecs =
-                    if (folderEnabled || headerShowsMedia) emptyList() else top2Specs
+                // Only exclude the top two tiles when the header is actually rendering them.
+                val excludeSpecs = if (headerShowsTop2Tiles) top2Specs else emptyList()
 
                 Column(
                     verticalArrangement =
                         spacedBy(dimensionResource(id = R.dimen.qs_tile_margin_vertical))
                 ) {
-                    if (folderEnabled && headerShowsMedia) {
-                        Element(key = Media.Elements.MediaCarousel, modifier = Modifier) {
-                            Media(
-                                viewModelFactory = viewModel.mediaViewModelFactory,
-                                presentationStyle = MediaPresentationStyle.Default,
-                                behavior = QuickSettingsContainerViewModel.mediaUiBehavior,
-                                onDismissed = viewModel::onMediaSwipeToDismiss,
-                                mediaSquishiness = mediaSquishiness,
-                                location = Media.Location.QS,
-                            )
-                        }
+                    if (folderEnabled && !headerShowsFolder && folderPosition <= POSITION_ABOVE_GRID) {
+                        ConnectivityFolder(
+                            tiles = viewModel.tileGridViewModel.tileViewModels,
+                            modifier = Modifier.element(Elements.ConnectivityFolder),
+                            onExpandedChange = { folderExpanded = it },
+                        )
+                    }
+                    val mediaOwnRow =
+                        showMedia && isAlwaysComposedContentVisible() && !headerShowsMedia
+                    if (mediaOwnRow && mediaPosition <= POSITION_ABOVE_GRID) {
+                        QsMedia(viewModel, mediaSquishiness)
                     }
                     Box {
                         // Keep the anchor composed either way: the shade -> QS transition
                         // positions the whole panel against it.
                         GridAnchor()
-                        if (folderExpanded) {
-                            ConnectivityFolder(
-                                tiles = viewModel.tileGridViewModel.tileViewModels,
-                                expanded = true,
-                                onExpandedChange = { folderExpanded = it },
-                            )
-                        } else {
-                            TileGrid(
-                                viewModel = viewModel.tileGridViewModel,
-                                excludeSpecs = excludeSpecs,
-                                listening = { listening },
-                                modifier = Modifier.element(Elements.QuickSettingsTiles),
-                            )
-                        }
+                        TileGrid(
+                            viewModel = viewModel.tileGridViewModel,
+                            excludeSpecs = excludeSpecs,
+                            listening = { listening },
+                            modifier = Modifier.element(Elements.QuickSettingsTiles),
+                        )
+                    }
+                    if (mediaOwnRow && mediaPosition >= POSITION_BELOW_GRID) {
+                        QsMedia(viewModel, mediaSquishiness)
+                    }
+                    if (
+                        folderEnabled &&
+                            !headerShowsFolder &&
+                            folderPosition >= POSITION_BELOW_GRID
+                    ) {
+                        ConnectivityFolder(
+                            tiles = viewModel.tileGridViewModel.tileViewModels,
+                            modifier = Modifier.element(Elements.ConnectivityFolder),
+                            onExpandedChange = { folderExpanded = it },
+                        )
                     }
                 }
             },
@@ -222,6 +264,23 @@ private fun ContentScope.PenguinQuickSettingsContent(
                 .padding(horizontal = dimensionResource(id = R.dimen.qs_horizontal_margin))
                 .sysuiResTag("quick_settings_panel"),
     )
+}
+
+@Composable
+private fun ContentScope.QsMedia(
+    viewModel: QuickSettingsContainerViewModel,
+    mediaSquishiness: () -> Float,
+) {
+    Element(key = Media.Elements.MediaCarousel, modifier = Modifier) {
+        Media(
+            viewModelFactory = viewModel.mediaViewModelFactory,
+            presentationStyle = MediaPresentationStyle.Default,
+            behavior = QuickSettingsContainerViewModel.mediaUiBehavior,
+            onDismissed = viewModel::onMediaSwipeToDismiss,
+            mediaSquishiness = mediaSquishiness,
+            location = Media.Location.QS,
+        )
+    }
 }
 
 @Composable
