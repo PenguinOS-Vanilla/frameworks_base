@@ -22,6 +22,7 @@ import android.media.AudioSystem
 import com.android.systemui.volume.VolumeDialogControllerImpl
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialog
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialogScope
+import com.android.systemui.volume.dialog.domain.interactor.VolumeDialogExpansionInteractor
 import com.android.systemui.volume.dialog.domain.interactor.VolumeDialogStateInteractor
 import com.android.systemui.volume.dialog.shared.model.VolumeDialogStateModel
 import com.android.systemui.volume.dialog.shared.model.VolumeDialogStreamModel
@@ -31,6 +32,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
@@ -39,6 +41,19 @@ import kotlinx.coroutines.flow.stateIn
 
 private const val DEFAULT_STREAM = AudioManager.STREAM_MUSIC
 
+/**
+ * Streams that get a slider of their own in the expandable panel style, whether or not they are
+ * active. Notification is left out: on phones it follows the ring stream, so it would show up as a
+ * second slider that moves on its own.
+ */
+private val EXPANDABLE_STREAMS =
+    setOf(
+        AudioManager.STREAM_MUSIC,
+        AudioManager.STREAM_RING,
+        AudioManager.STREAM_ALARM,
+        AudioManager.STREAM_VOICE_CALL,
+    )
+
 /** Provides a state for the Sliders section of the Volume Dialog. */
 @VolumeDialogScope
 class VolumeDialogSlidersInteractor
@@ -46,11 +61,14 @@ class VolumeDialogSlidersInteractor
 constructor(
     volumeDialogStateInteractor: VolumeDialogStateInteractor,
     private val packageManager: PackageManager,
+    private val expansionInteractor: VolumeDialogExpansionInteractor,
     @VolumeDialog private val coroutineScope: CoroutineScope,
 ) {
 
     private val streamsSorter = StreamsSorter()
-    val sliders: Flow<VolumeDialogSlidersModel> =
+
+    /** Every slider the dialog knows about, most important first. */
+    private val sliderTypes: Flow<LinkedHashSet<VolumeDialogSliderType>> =
         volumeDialogStateInteractor.volumeDialogState
             .filter { it.streamModels.isNotEmpty() }
             .map { stateModel ->
@@ -64,12 +82,24 @@ constructor(
             .runningReduce { sliderTypes, newSliderTypes ->
                 sliderTypes.apply { addAll(newSliderTypes) }
             }
-            .map { sliderTypes ->
+
+    val sliders: Flow<VolumeDialogSlidersModel> =
+        combine(sliderTypes, expansionInteractor.isExpanded) { sliderTypes, isExpanded ->
                 val primarySlider = sliderTypes.firstOrNull()
-                primarySlider ?: return@map null
+                primarySlider ?: return@combine null
+                val floatingSliders =
+                    when {
+                        // The default style shows a slider for every active stream, no expanding.
+                        !expansionInteractor.isExpandable -> sliderTypes.drop(1)
+                        // Reversed, because the floating sliders are laid out from the far side of
+                        // the screen towards the primary one, and the primary slider stays next to
+                        // the volume keys.
+                        isExpanded -> sliderTypes.drop(1).reversed()
+                        else -> emptyList()
+                    }
                 VolumeDialogSlidersModel(
                     slider = primarySlider,
-                    floatingSliders = sliderTypes.drop(1),
+                    floatingSliders = floatingSliders,
                 )
             }
             .stateIn(coroutineScope, SharingStarted.Eagerly, null)
@@ -84,6 +114,12 @@ constructor(
         }
 
         if (!packageManager.isTv()) {
+            // The expandable style hides these behind the expand button, so they can be built up
+            // front: the sliders model drops them again while the panel is collapsed.
+            if (expansionInteractor.isExpandable && streamModel.stream in EXPANDABLE_STREAMS) {
+                return true
+            }
+
             if (streamModel.stream == AudioSystem.STREAM_ACCESSIBILITY) {
                 return stateModel.shouldShowA11ySlider
             }
@@ -122,6 +158,10 @@ constructor(
                 { it.stream == AudioManager.STREAM_ACCESSIBILITY },
                 { it.stream == AudioManager.STREAM_RING },
                 { it.stream == AudioManager.STREAM_NOTIFICATION },
+                // Listed so that the expandable style gets a stable ring -> alarm -> call order.
+                // Without a predicate alarm falls back to its stream number, which ties with the
+                // priority of the streams above it.
+                { it.stream == AudioManager.STREAM_ALARM },
                 { it.stream == AudioManager.STREAM_VOICE_CALL },
                 { it.stream == AudioManager.STREAM_SYSTEM },
                 { it.isDynamic },

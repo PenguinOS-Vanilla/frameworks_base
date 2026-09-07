@@ -29,6 +29,7 @@ import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.lifecycle.repeatWhenAttached
 import com.android.systemui.res.R
 import com.android.systemui.volume.Events
+import com.android.systemui.volume.VolumePanelStyle
 import com.android.systemui.volume.dialog.dagger.factory.VolumeDialogComponentFactory
 import com.android.systemui.volume.dialog.domain.interactor.VolumeDialogVisibilityInteractor
 import dagger.assisted.Assisted
@@ -49,6 +50,13 @@ constructor(
     interface Factory {
         fun create(isVolumeDialogVertical: Boolean): VolumeDialog
     }
+
+    /**
+     * The One UI style is a card of its own rather than a column hugging the volume keys, so it is
+     * centred on the screen and gets its own layout.
+     */
+    private val isOneUiStyle =
+        isVolumeDialogVertical && VolumePanelStyle.current(context) == VolumePanelStyle.ONE_UI
 
     init {
         with(window!!) {
@@ -71,7 +79,14 @@ constructor(
                 android.provider.Settings.Secure.VOLUME_PANEL_ON_LEFT,
                 0
             ) == 1
-            if (isVolumeDialogVertical) {
+            if (isOneUiStyle) {
+                setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                // Comes up collapsed, hugging the volume keys. VolumeDialogViewBinder centres it
+                // when the panel is expanded.
+                setGravity(
+                    (if (isLeft) Gravity.START else Gravity.END) or Gravity.CENTER_VERTICAL
+                )
+            } else if (isVolumeDialogVertical) {
                 setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 setGravity(if (isLeft) Gravity.START else Gravity.END)
             } else {
@@ -85,7 +100,9 @@ constructor(
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (isVolumeDialogVertical) {
+        if (isOneUiStyle) {
+            setContentView(R.layout.volume_dialog_oneui)
+        } else if (isVolumeDialogVertical) {
             setContentView(R.layout.volume_dialog)
         } else {
             setContentView(R.layout.volume_dialog_horizontal)
