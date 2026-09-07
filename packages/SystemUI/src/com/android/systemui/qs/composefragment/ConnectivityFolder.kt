@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
+import com.android.compose.theme.LocalAndroidColorScheme
 import com.android.systemui.common.shared.model.Icon
 import com.android.systemui.common.ui.compose.Icon
 import com.android.systemui.plugins.qs.QSTile
@@ -67,6 +68,7 @@ import com.android.systemui.qs.panels.ui.viewmodel.TileViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.toIconProvider
 import com.android.systemui.qs.panels.ui.viewmodel.toUiState
 import com.android.systemui.qs.pipeline.shared.TileSpec
+import com.android.systemui.qs.shared.style.isStockQsStyle
 import com.android.systemui.qs.tileimpl.QSTileImpl
 import com.android.systemui.res.R
 
@@ -97,6 +99,38 @@ object ConnectivityFolderSpecs {
 /** Secure settings holding the user's choice of folder tiles, as comma separated specs. */
 const val SETTING_QS_FOLDER_LARGE = "qs_connectivity_folder_large"
 const val SETTING_QS_FOLDER_SMALL = "qs_connectivity_folder_small"
+
+/** Width of the folder in the panel: 1 for half, 2 for full. */
+const val SETTING_QS_FOLDER_SPAN = "qs_connectivity_folder_span"
+/** Where the folder sits: [POSITION_HEADER], [POSITION_ABOVE_GRID] or [POSITION_BELOW_GRID]. */
+const val SETTING_QS_FOLDER_POSITION = "qs_connectivity_folder_position"
+/** Where the media player sits, using the same positions as the folder. */
+const val SETTING_QS_MEDIA_POSITION = "qs_media_position"
+
+/** Beside the sliders in the header. Only possible at half width. */
+const val POSITION_HEADER = -1
+const val POSITION_ABOVE_GRID = 0
+const val POSITION_BELOW_GRID = 1
+/** Width of the media player in the panel: 1 for half, 2 for full. */
+const val SETTING_QS_MEDIA_SPAN = "qs_media_span"
+
+/** Observes an int secure setting so panel layout changes apply without a restart. */
+@Composable
+fun secureIntSetting(key: String, default: Int): Int {
+    val resolver = LocalContext.current.contentResolver
+    var value by remember(key) { mutableStateOf(Settings.Secure.getInt(resolver, key, default)) }
+    DisposableEffect(resolver, key) {
+        val observer =
+            object : ContentObserver(Handler(Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) {
+                    value = Settings.Secure.getInt(resolver, key, default)
+                }
+            }
+        resolver.registerContentObserver(Settings.Secure.getUriFor(key), false, observer)
+        onDispose { resolver.unregisterContentObserver(observer) }
+    }
+    return value
+}
 
 /**
  * The specs the user wants in the folder, defaulting to [ConnectivityFolderSpecs]. Observed so
@@ -138,6 +172,7 @@ private val HeroCircle = 64.dp
 private val SmallCircle = 30.dp
 private val CellSize = 72.dp
 private val BigCardHeight = 148.dp
+private const val GlassSurfaceAlpha = 0.45f
 private val CardPadding = 10.dp
 private val CellSpacing = 6.dp
 
@@ -182,7 +217,13 @@ fun ConnectivityFolder(
     val gap = dimensionResource(id = R.dimen.qs_tile_margin_vertical)
 
     if (expanded) {
-        ExpandedSheet(large = large, small = small, gap = gap, onDone = { onExpandedChange(false) })
+        ExpandedSheet(
+            large = large,
+            small = small,
+            gap = gap,
+            uniformGrid = secureIntSetting(SETTING_QS_FOLDER_SPAN, 1) >= 2,
+            onDone = { onExpandedChange(false) },
+        )
         return
     }
 
@@ -197,21 +238,34 @@ fun ConnectivityFolder(
                 // than the gap between tiles, which read as misaligned.
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(28.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                .background(glassSurface())
                 .padding(CardPadding),
         verticalArrangement = spacedBy(CellSpacing),
     ) {
-        // A tight 2x2 of equal cells that hugs its content, the way Control Centre's
-        // connectivity module does. Spreading these across the full panel width left dead gaps.
-        Row(horizontalArrangement = spacedBy(CellSpacing), modifier = Modifier.fillMaxWidth()) {
-            Cell(cell) { large.getOrNull(0)?.let { FolderCircle(it, cell * 0.88f) } }
-            Cell(cell) { large.getOrNull(1)?.let { FolderCircle(it, cell * 0.88f) } }
-        }
-        Row(horizontalArrangement = spacedBy(CellSpacing), modifier = Modifier.fillMaxWidth()) {
-            Cell(cell) { large.getOrNull(2)?.let { FolderCircle(it, cell * 0.96f) } }
-            Cell(cell) {
+        if (compactHeight == null) {
+            // Full width: one row of controls, so the folder costs a single grid row instead of
+            // the two a 2x2 needs and the panel does not overflow.
+            Row(horizontalArrangement = spacedBy(CellSpacing), modifier = Modifier.fillMaxWidth()) {
+                large.forEach { tile -> Cell(cell) { FolderCircle(tile, cell * 0.88f) } }
                 if (small.isNotEmpty()) {
-                    SmallCluster(small, cell * 0.38f, onClick = { onExpandedChange(true) })
+                    Cell(cell) {
+                        SmallCluster(small, cell * 0.34f, onClick = { onExpandedChange(true) })
+                    }
+                }
+            }
+        } else {
+            // A tight 2x2 of equal cells that hugs its content, the way Control Centre's
+            // connectivity module does. Spreading these across the full panel width left dead gaps.
+            Row(horizontalArrangement = spacedBy(CellSpacing), modifier = Modifier.fillMaxWidth()) {
+                Cell(cell) { large.getOrNull(0)?.let { FolderCircle(it, cell * 0.88f) } }
+                Cell(cell) { large.getOrNull(1)?.let { FolderCircle(it, cell * 0.88f) } }
+            }
+            Row(horizontalArrangement = spacedBy(CellSpacing), modifier = Modifier.fillMaxWidth()) {
+                Cell(cell) { large.getOrNull(2)?.let { FolderCircle(it, cell * 0.96f) } }
+                Cell(cell) {
+                    if (small.isNotEmpty()) {
+                        SmallCluster(small, cell * 0.38f, onClick = { onExpandedChange(true) })
+                    }
                 }
             }
         }
@@ -228,10 +282,13 @@ private fun ExpandedSheet(
     large: List<TileViewModel>,
     small: List<TileViewModel>,
     gap: Dp,
+    uniformGrid: Boolean,
     onDone: () -> Unit,
 ) {
     val all = large + small
-    val cards = all.filter { it.spec.spec in ConnectivityFolderSpecs.ExpandedCards }
+    // Full width folders expand into an even grid of equal cards, the way One UI does it. Half
+    // width ones keep the Control Centre shape, where only the connection toggles get big cards.
+    val cards = if (uniformGrid) all else all.filter { it.spec.spec in ConnectivityFolderSpecs.ExpandedCards }
     val rows = all.filterNot { it in cards }
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = spacedBy(gap)) {
@@ -275,7 +332,7 @@ private fun FolderBigCard(tile: TileViewModel) {
             Modifier.fillMaxWidth()
                 .height(BigCardHeight)
                 .clip(RoundedCornerShape(26.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                .background(glassSurface())
                 .combinedClickable(
                     onClick = { tile.primaryAction(uiState) },
                     onLongClick = { tile.settingsClick(null) },
@@ -391,7 +448,7 @@ private fun FolderRow(tile: TileViewModel) {
         modifier =
             Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(26.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                .background(glassSurface())
                 .combinedClickable(
                     onClick = { tile.primaryAction(uiState) },
                     onLongClick = { tile.settingsClick(null) },
@@ -428,10 +485,19 @@ private fun FolderRow(tile: TileViewModel) {
     }
 }
 
+/**
+ * The same frosted surface QS tiles and the sliders use (TileDefaults.GlassSurfaceAlpha), so the
+ * folder does not read as a different material sitting next to them.
+ */
+@Composable
+private fun glassSurface(): Color =
+    LocalAndroidColorScheme.current.surfaceEffect1.copy(
+        alpha = if (isStockQsStyle) 1f else GlassSurfaceAlpha
+    )
+
 @Composable
 private fun folderBackground(active: Boolean): Color =
-    if (active) MaterialTheme.colorScheme.primary
-    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+    if (active) MaterialTheme.colorScheme.primary else glassSurface()
 
 @Composable
 private fun folderForeground(active: Boolean): Color =
