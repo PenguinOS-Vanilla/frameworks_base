@@ -95,6 +95,7 @@ import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ImageView.ScaleType;
 import android.widget.LinearLayout;
+import android.widget.ListAdapter;
 import android.widget.ListPopupWindow;
 import android.widget.TextView;
 import android.window.OnBackInvokedCallback;
@@ -174,6 +175,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 import javax.inject.Inject;
 
@@ -279,6 +281,8 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
     private final boolean mHasVibrator;
     private final boolean mShowSilentToggle;
     private final boolean mTranslucentPowerMenu;
+    /** Runtime blur availability, see {@link #isDrawnOverBlur}. */
+    private boolean mIsBlurSupported;
     @NonNull
     private final EmergencyAffordanceManager mEmergencyAffordanceManager;
     @NonNull
@@ -1044,22 +1048,7 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
             super(iconResId, messageResId);
         }
 
-        @Override
-        public View create(
-                Context context, View convertView, ViewGroup parent, LayoutInflater inflater) {
-            View v = super.create(context, convertView, parent, inflater);
-            int textColor = getEmergencyTextColor(context);
-            int iconColor = getEmergencyIconColor(context);
-            int backgroundColor = getEmergencyBackgroundColor(context);
-            TextView messageView = v.findViewById(R.id.message);
-            messageView.setTextColor(textColor);
-            messageView.setSelected(true); // necessary for marquee to work
-            ImageView icon = v.findViewById(R.id.icon);
-            icon.getDrawable().setTint(iconColor);
-            icon.setBackgroundTintList(ColorStateList.valueOf(backgroundColor));
-            v.setBackgroundTintList(ColorStateList.valueOf(backgroundColor));
-            return v;
-        }
+        // Colouring is handled by stylePowerMenuButton, which keys off the message res id.
 
         @Override
         public boolean showDuringKeyguard() {
@@ -1070,22 +1059,6 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         public boolean showBeforeProvisioning() {
             return true;
         }
-    }
-
-    private int getEmergencyTextColor(Context context) {
-        return context.getResources().getColor(R.color.materialColorOnSurface);
-    }
-
-    private int getEmergencyIconColor(Context context) {
-        return context.getResources()
-                .getColor(com.android.systemui.res.R.color.global_actions_lite_emergency_icon);
-
-    }
-
-    private int getEmergencyBackgroundColor(Context context) {
-        return context.getResources().getColor(
-                com.android.systemui.res.R.color.global_actions_lite_emergency_background
-        );
     }
 
     private class EmergencyAffordanceAction extends EmergencyAction {
@@ -1789,6 +1762,23 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
      * The adapter used for power menu items shown in the global actions dialog.
      */
     public class MyAdapter extends MultiListAdapter {
+        /**
+         * Tells the dialog whether its windows are currently drawn over blur, which decides the
+         * button colours. The delegate owns the blur flow, but the styling lives out here.
+         */
+        public void setBlurSupported(boolean supported) {
+            if (mIsBlurSupported == supported) {
+                return;
+            }
+            mIsBlurSupported = supported;
+            notifyDataSetChanged();
+        }
+
+        /** Whether the buttons this adapter builds are drawn over blur. */
+        public boolean isBlurSupported() {
+            return isDrawnOverBlur();
+        }
+
         private int countItems(boolean separated) {
             int count = 0;
             for (int i = 0; i < mItems.size(); i++) {
@@ -1912,14 +1902,19 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
             return false;
         }
 
+        /** Whether pressing {@code action} opens a sub menu rather than leaving the power menu. */
+        public boolean opensSubMenu(Action action) {
+            return action instanceof PowerOptionsAction
+                    || (action instanceof RestartAction && shouldShowRestartSubmenu(mContext));
+        }
+
         @Override
         public void onClickItem(int position) {
             Action item = mAdapter.getItem(position);
             if (!(item instanceof SilentModeTriStateAction)) {
                 if (mDelegate != null) {
                     // don't dismiss the dialog if we're opening the power/restart options menu
-                    if (!(item instanceof PowerOptionsAction ||
-                            (item instanceof RestartAction && shouldShowRestartSubmenu(mContext)))) {
+                    if (!opensSubMenu(item)) {
                         // Usually clicking an item shuts down the phone, locks, or starts an
                         // activity. We don't want to animate back into the power button when that
                         // happens, so we disable the dialog animation before dismissing.
@@ -1978,7 +1973,9 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
                     Typeface.create(FontStyles.GSF_LABEL_LARGE_EMPHASIZED, Typeface.NORMAL));
 
             icon.setImageDrawable(action.getIcon(mContext));
-            icon.setScaleType(ScaleType.CENTER_CROP);
+            icon.setScaleType(ScaleType.CENTER);
+            // Same styling as the main power menu; nothing in this submenu is the emergency action.
+            stylePowerMenuButton(mContext, icon, messageView, false /* isEmergency */);
 
             if (action.getMessage() != null) {
                 messageView.setText(action.getMessage());
@@ -2259,7 +2256,11 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
                     Typeface.create(FontStyles.GSF_LABEL_LARGE_EMPHASIZED, Typeface.NORMAL));
             messageView.setSelected(true); // necessary for marquee to work
             mIconView.setImageDrawable(getIcon(context));
-            mIconView.setScaleType(ScaleType.CENTER_CROP);
+            // CENTER rather than CENTER_CROP: the icons are small vectors, and cropping them to
+            // fill the button blows them up and clips the edges.
+            mIconView.setScaleType(ScaleType.CENTER);
+            stylePowerMenuButton(context, mIconView, messageView,
+                    mMessageResId == R.string.global_action_emergency);
             if (isTv()) {
                 mIconView.setFocusable(true);
                 mIconView.setClickable(true);
@@ -2298,6 +2299,52 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
 
     private int getGridItemLayoutResource() {
         return com.android.systemui.res.R.layout.global_actions_grid_item_lite;
+    }
+
+    /**
+     * Whether the power menu windows are currently drawn over blur rather than over a solid card.
+     * Blur can be turned off by the build, and can also drop out at runtime, which is why the
+     * runtime state has to be tracked alongside the two build time flags.
+     */
+    private boolean isDrawnOverBlur() {
+        return isVolumeAndPowerBlurEnabled() && mTranslucentPowerMenu && mIsBlurSupported;
+    }
+
+    /**
+     * Tints a power menu button and its icon. Every button is translucent so that the blur behind
+     * the dialog shows through it, except the emergency one, which stays solid red.
+     *
+     * <p>The oval in {@code global_actions_lite_button} is opaque on purpose: the tint is applied
+     * with {@code SRC_IN}, so the alpha of the result comes from the tint colour.
+     */
+    private void stylePowerMenuButton(
+            Context context, ImageView icon, TextView messageView, boolean isEmergency) {
+        Resources res = context.getResources();
+        // What the buttons sit on decides their colours, not the theme: over blur the backdrop is
+        // dark whichever theme is in use, while the fallback card follows the theme.
+        boolean onBlur = isDrawnOverBlur();
+        int tint = onBlur
+                ? com.android.systemui.res.R.color.global_actions_lite_button_tint_blur
+                : com.android.systemui.res.R.color.global_actions_lite_button_tint;
+        int foreground = onBlur
+                ? com.android.systemui.res.R.color.global_actions_lite_button_icon_blur
+                : com.android.systemui.res.R.color.global_actions_lite_button_icon;
+        int emergency = onBlur
+                ? com.android.systemui.res.R.color.global_actions_lite_emergency_background_blur
+                : com.android.systemui.res.R.color.global_actions_lite_emergency_background;
+
+        int backgroundColor = res.getColor(isEmergency ? emergency : tint);
+        // The emergency oval is solid red everywhere, so its icon does not follow the foreground
+        // the translucent buttons use.
+        int iconColor = res.getColor(isEmergency
+                ? com.android.systemui.res.R.color.global_actions_lite_emergency_icon
+                : foreground);
+        // Labels sit on the backdrop rather than on the oval, so they always follow it.
+        int labelColor = res.getColor(foreground);
+
+        icon.setBackgroundTintList(ColorStateList.valueOf(backgroundColor));
+        icon.setColorFilter(iconColor);
+        messageView.setTextColor(labelColor);
     }
 
     private enum ToggleState {
@@ -2777,7 +2824,20 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         @VisibleForTesting
         @Nullable
         SystemUIDialog mCurrentDialog;
+        @Nullable
         private GlobalActionsLayoutLite mGlobalActionsLayout;
+        /**
+         * The part of the dialog the show/dismiss animation moves and fades. Which view that is
+         * depends on the {@link PowerMenuStyle} in use.
+         */
+        @Nullable
+        private View mAnimatedContent;
+        /**
+         * The opaque backdrop of the iOS style menu. Null in the Penguin style, and while window
+         * blur is up.
+         */
+        @Nullable
+        private Drawable mIosBackdrop;
         @Nullable
         private ScrimDrawable mBackgroundDrawable;
         @Nullable
@@ -2963,14 +3023,38 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         }
 
         public void showPowerOptionsMenu() {
-            mPowerOptionsDialog = GlobalActionsPowerDialog.create(mContext, mPowerOptionsAdapter);
-            mPowerOptionsDialog.show();
+            mPowerOptionsDialog = createSubMenu(mPowerOptionsAdapter);
+            showSubMenu(mPowerOptionsDialog);
         }
 
         public void showRestartOptionsMenu() {
-            mRestartOptionsDialog = GlobalActionsPowerDialog.create(mContext,
-                    mRestartOptionsAdapter);
-            mRestartOptionsDialog.show();
+            mRestartOptionsDialog = createSubMenu(mRestartOptionsAdapter);
+            showSubMenu(mRestartOptionsDialog);
+        }
+
+        /** Builds a sub menu in whichever style the power menu itself is using. */
+        @NonNull
+        private Dialog createSubMenu(@NonNull ListAdapter adapter) {
+            boolean blurSupported = mAdapter.isBlurSupported();
+            if (PowerMenuStyle.current(mContext) == PowerMenuStyle.IOS) {
+                return GlobalActionsIosPowerDialog.create(mContext, adapter, blurSupported);
+            }
+            return GlobalActionsPowerDialog.create(mContext, adapter, blurSupported);
+        }
+
+        /**
+         * Shows a sub menu on top of this dialog. The sub menu window is translucent when blur is
+         * up, so the buttons of the dialog underneath would otherwise show through it and collide
+         * with the sub menu's own buttons. Hide them for as long as the sub menu is up.
+         */
+        private void showSubMenu(@NonNull Dialog subMenu) {
+            final View parentContent = mAnimatedContent;
+            if (parentContent != null) {
+                parentContent.setVisibility(View.INVISIBLE);
+                subMenu.setOnDismissListener(
+                        d -> parentContent.setVisibility(View.VISIBLE));
+            }
+            subMenu.show();
         }
 
         private void showPowerOverflowMenu(@NonNull SystemUIDialog dialog) {
@@ -2979,6 +3063,11 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         }
 
         private void initializeLayout(@NonNull SystemUIDialog dialog) {
+            if (PowerMenuStyle.current(dialog.getContext()) == PowerMenuStyle.IOS) {
+                initializeIosLayout(dialog);
+                return;
+            }
+
             dialog.setContentView(com.android.systemui.res.R.layout.global_actions_grid_lite);
             fixNavBarClipping(dialog);
 
@@ -2997,10 +3086,15 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
             mGlobalActionsLayout.setRotationListener(this::onRotate);
             mGlobalActionsLayout.setAdapter(mAdapter);
             final WindowRootViewBlurInteractor blurInteractor = dialog.getBlurInteractor();
-            collectFlow(mGlobalActionsLayout, blurInteractor.isBlurCurrentlySupported(),
-                    mGlobalActionsLayout::setIsBlurSupported);
-            mGlobalActionsLayout.setIsBlurSupported(
-                    blurInteractor.isBlurCurrentlySupported().getValue());
+            final GlobalActionsLayoutLite layout = mGlobalActionsLayout;
+            // The layout uses this to pick its background, the adapter to pick the colour of the
+            // buttons it builds. Both have to agree, or the buttons end up unreadable on it.
+            final Consumer<Boolean> applyBlurSupported = supported -> {
+                layout.setIsBlurSupported(supported);
+                mAdapter.setBlurSupported(supported);
+            };
+            collectFlow(layout, blurInteractor.isBlurCurrentlySupported(), applyBlurSupported);
+            applyBlurSupported.accept(blurInteractor.isBlurCurrentlySupported().getValue());
             ViewGroup container =
                     dialog.findViewById(com.android.systemui.res.R.id.global_actions_container);
             container.setOnTouchListener((v, event) -> {
@@ -3027,6 +3121,9 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
                 }
             }
 
+            mAnimatedContent = mGlobalActionsLayout;
+            mIosBackdrop = null;
+
             if (mBackgroundDrawable == null) {
                 mBackgroundDrawable = new ScrimDrawable();
             }
@@ -3037,6 +3134,160 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
                 mLockPatternUtils.requireCredentialEntry(user);
                 showSmartLockDisabledMessage(dialog.getContext(), container);
             }
+        }
+
+        /**
+         * Builds the iOS style menu: a full screen list of slide-to-act rows. It only ever offers
+         * power off, restart and emergency, so instead of going through {@link MyAdapter} it looks
+         * up those three actions and binds them to a row each. Rows whose action is not available
+         * to the current user are dropped.
+         */
+        private void initializeIosLayout(@NonNull SystemUIDialog dialog) {
+            dialog.setContentView(com.android.systemui.res.R.layout.global_actions_ios);
+            fixNavBarClipping(dialog);
+
+            final Context context = dialog.getContext();
+            final Resources res = context.getResources();
+
+            ViewGroup container =
+                    dialog.findViewById(com.android.systemui.res.R.id.global_actions_container);
+            container.setOnTouchListener((v, event) -> {
+                mGestureDetector.onTouchEvent(event);
+                return v.onTouchEvent(event);
+            });
+
+            // The rows are translucent by design, so they need something dark behind them. Blur
+            // provides that when it is up; when it is not, fall back to an opaque backdrop rather
+            // than letting the wallpaper show through. It is the container's background rather
+            // than a child view so that it also covers the system bar insets the container pads
+            // its children away from.
+            final boolean translucentMenu = res.getBoolean(
+                    com.android.systemui.res.R.bool.config_translucentStandalonePowerMenu);
+            final WindowRootViewBlurInteractor blurInteractor = dialog.getBlurInteractor();
+            final Consumer<Boolean> applyBlurSupported = supported -> {
+                // The rows carry their own colours, but the restart sub menu is the grid one.
+                mAdapter.setBlurSupported(supported);
+                if (isVolumeAndPowerBlurEnabled() && translucentMenu && supported) {
+                    container.setBackground(null);
+                    mIosBackdrop = null;
+                    return;
+                }
+                Drawable backdrop = res.getDrawable(
+                        com.android.systemui.res.R.drawable.power_menu_ios_backdrop,
+                        context.getTheme()).mutate();
+                container.setBackground(backdrop);
+                mIosBackdrop = backdrop;
+            };
+            collectFlow(container, blurInteractor.isBlurCurrentlySupported(), applyBlurSupported);
+            applyBlurSupported.accept(blurInteractor.isBlurCurrentlySupported().getValue());
+
+            final int track = res.getColor(
+                    com.android.systemui.res.R.color.power_menu_ios_track, null);
+            final int thumb = res.getColor(
+                    com.android.systemui.res.R.color.power_menu_ios_thumb, null);
+            final int foreground = res.getColor(
+                    com.android.systemui.res.R.color.power_menu_ios_foreground, null);
+
+            SlideToActView powerOffRow =
+                    dialog.findViewById(com.android.systemui.res.R.id.power_menu_ios_power_off);
+            powerOffRow.setColors(track, thumb, foreground);
+            powerOffRow.setLabel(
+                    context.getText(com.android.systemui.res.R.string.power_menu_ios_power_off));
+            bindSlideRow(context, powerOffRow, findAction(ShutDownAction.class), true /* useIcon */);
+
+            SlideToActView restartRow =
+                    dialog.findViewById(com.android.systemui.res.R.id.power_menu_ios_restart);
+            restartRow.setColors(track, thumb, foreground);
+            restartRow.setLabel(
+                    context.getText(com.android.systemui.res.R.string.power_menu_ios_restart));
+            bindSlideRow(context, restartRow, findAction(RestartAction.class), true /* useIcon */);
+
+            SlideToActView emergencyRow =
+                    dialog.findViewById(com.android.systemui.res.R.id.power_menu_ios_emergency);
+            emergencyRow.setColors(
+                    res.getColor(
+                            com.android.systemui.res.R.color.power_menu_ios_emergency_track, null),
+                    res.getColor(
+                            com.android.systemui.res.R.color.power_menu_ios_emergency_thumb, null),
+                    res.getColor(
+                            com.android.systemui.res.R.color.power_menu_ios_emergency_foreground,
+                            null));
+            emergencyRow.setLabel(
+                    context.getText(com.android.systemui.res.R.string.power_menu_ios_emergency));
+            emergencyRow.setThumbText(context.getText(
+                    com.android.systemui.res.R.string.power_menu_ios_emergency_thumb_label));
+            bindSlideRow(context, emergencyRow, findAction(EmergencyAction.class),
+                    false /* useIcon */);
+
+            // The hint only makes sense next to the row it describes.
+            View emergencyHint =
+                    dialog.findViewById(
+                            com.android.systemui.res.R.id.power_menu_ios_emergency_hint);
+            emergencyHint.setVisibility(emergencyRow.getVisibility());
+            dialog.findViewById(com.android.systemui.res.R.id.power_menu_ios_restart_gap)
+                    .setVisibility(
+                            restartRow.getVisibility() == View.VISIBLE
+                                    && emergencyRow.getVisibility() == View.VISIBLE
+                                    ? View.VISIBLE : View.GONE);
+
+            View closeButton =
+                    dialog.findViewById(com.android.systemui.res.R.id.power_menu_ios_close);
+            closeButton.setOnClickListener(v -> {
+                mUiEventLogger.log(GlobalActionsEvent.GA_CLOSE_TAP_OUTSIDE);
+                dismiss();
+            });
+
+            mAnimatedContent =
+                    dialog.findViewById(com.android.systemui.res.R.id.power_menu_ios_content);
+
+            if (mBackgroundDrawable == null) {
+                mBackgroundDrawable = new ScrimDrawable();
+            }
+            int user = mSelectedUserInteractor.getSelectedUserId();
+            if (mKeyguardShowing && mKeyguardUpdateMonitor.getUserHasTrust(user)) {
+                mLockPatternUtils.requireCredentialEntry(user);
+                showSmartLockDisabledMessage(context, container);
+            }
+        }
+
+        /** Hides {@code row} when {@code action} is missing, otherwise wires the slide to it. */
+        private void bindSlideRow(@NonNull Context context, @NonNull SlideToActView row,
+                @Nullable Action action, boolean useIcon) {
+            if (action == null) {
+                row.setVisibility(View.GONE);
+                return;
+            }
+            if (useIcon) {
+                row.setThumbIcon(action.getIcon(context));
+            }
+            row.setOnSlideCompleteListener(v -> onIosActionTriggered(action));
+        }
+
+        private void onIosActionTriggered(@NonNull Action action) {
+            // Same contract as MyAdapter.onClickItem: keep the dialog up when the action opens a
+            // sub menu, otherwise get out of the way before the action runs.
+            if (!mAdapter.opensSubMenu(action)) {
+                dismissWithoutAnimation();
+            }
+            action.onPress();
+        }
+
+        /** Finds the first shown action of {@code type}, in the main list or the power sub list. */
+        @Nullable
+        private Action findAction(@NonNull Class<? extends Action> type) {
+            for (int i = 0; i < mAdapter.getCount(); i++) {
+                Action action = mAdapter.getItem(i);
+                if (type.isInstance(action)) {
+                    return action;
+                }
+            }
+            for (int i = 0; i < mPowerOptionsAdapter.getCount(); i++) {
+                Action action = mPowerOptionsAdapter.getItem(i);
+                if (type.isInstance(action)) {
+                    return action;
+                }
+            }
+            return null;
         }
 
         private void fixNavBarClipping(@NonNull SystemUIDialog dialog) {
@@ -3080,7 +3331,9 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
 
         @Override
         public void onStart(@NonNull SystemUIDialog dialog) {
-            mGlobalActionsLayout.updateList();
+            if (mGlobalActionsLayout != null) {
+                mGlobalActionsLayout.updateList();
+            }
             mLightBarController.setGlobalActionsVisible(true);
 
             mColorExtractor.addOnColorsChangedListener(this);
@@ -3101,8 +3354,11 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
          * @param initialValue The initial unlock status of the device.
          */
         private void dismissWhenUnlockStatusChanges(boolean initialValue) {
+            if (mAnimatedContent == null) {
+                return;
+            }
             collectFlow(
-                    mGlobalActionsLayout,
+                    mAnimatedContent,
                     mDeviceEntryInteractor.isUnlocked(),
                     newValue -> {
                         if (newValue != initialValue) {
@@ -3151,8 +3407,17 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
             if (mCurrentDialog == null) {
                 return;
             }
+            /* The transition animator expands the caller's view into the first ViewGroup of the
+             * dialog that both carries a background and is a LaunchableView. The iOS menu is a full
+             * screen sheet: its only background is the container's backdrop, which is a plain
+             * FrameLayout and is dropped entirely while blur is up. The animator raises on both of
+             * those, which took SystemUI down whenever the menu was opened from a caller that
+             * passes an Expandable, the QS power button among them. That style animates itself in
+             * window instead, so give the animator nothing to do. */
+            boolean animateFromExpandable =
+                    expandable != null && PowerMenuStyle.current(mContext) != PowerMenuStyle.IOS;
             DialogTransitionAnimator.Controller controller =
-                    expandable != null ? expandable.dialogTransitionController(
+                    animateFromExpandable ? expandable.dialogTransitionController(
                             new DialogCuj(InteractionJankMonitor.CUJ_SHADE_DIALOG_OPEN,
                                     INTERACTION_JANK_TAG)) : null;
             if (controller != null) {
@@ -3199,6 +3464,14 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         /** Run either the enter or exit animation, then run {@code then}. */
         private void startAnimation(@NonNull SystemUIDialog dialog, boolean isEnter,
                 @Nullable Runnable then) {
+            final View content = mAnimatedContent;
+            final Drawable backdrop = mIosBackdrop;
+            if (content == null) {
+                if (then != null) {
+                    then.run();
+                }
+                return;
+            }
             ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
 
             // Note: these specs should be the same as in popup_enter_material and
@@ -3222,7 +3495,12 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
                 float progress = (float) valueAnimator.getAnimatedValue();
 
                 float alpha = isEnter ? progress : 1 - progress;
-                mGlobalActionsLayout.setAlpha(alpha);
+                content.setAlpha(alpha);
+                // The backdrop replaces the blur, which the window fades on its own, so it has
+                // to fade with the menu instead of popping in and out.
+                if (backdrop != null) {
+                    backdrop.setAlpha(Math.round(alpha * 255));
+                }
                 window.setDimAmount(mInitialWindowDimAmount * alpha);
 
                 // TODO(b/213872558): Support devices that don't have their power button on the
@@ -3231,16 +3509,16 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
                         isEnter ? translationPx * (1 - progress) : translationPx * progress;
                 switch (rotation) {
                     case Surface.ROTATION_0:
-                        mGlobalActionsLayout.setTranslationX(translation);
+                        content.setTranslationX(translation);
                         break;
                     case Surface.ROTATION_90:
-                        mGlobalActionsLayout.setTranslationY(-translation);
+                        content.setTranslationY(-translation);
                         break;
                     case Surface.ROTATION_180:
-                        mGlobalActionsLayout.setTranslationX(-translation);
+                        content.setTranslationX(-translation);
                         break;
                     case Surface.ROTATION_270:
-                        mGlobalActionsLayout.setTranslationY(translation);
+                        content.setTranslationY(translation);
                         break;
                 }
             });
@@ -3250,13 +3528,13 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
 
                 @Override
                 public void onAnimationStart(@NonNull Animator animation, boolean isReverse) {
-                    mPreviousLayerType = mGlobalActionsLayout.getLayerType();
-                    mGlobalActionsLayout.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                    mPreviousLayerType = content.getLayerType();
+                    content.setLayerType(View.LAYER_TYPE_HARDWARE, null);
                 }
 
                 @Override
                 public void onAnimationEnd(Animator animation) {
-                    mGlobalActionsLayout.setLayerType(mPreviousLayerType, null);
+                    content.setLayerType(mPreviousLayerType, null);
                     if (then != null) {
                         then.run();
                     }
@@ -3340,7 +3618,9 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
             dismissRestartOptions();
 
             // Update the list as the max number of items per row has probably changed.
-            mGlobalActionsLayout.updateList();
+            if (mGlobalActionsLayout != null) {
+                mGlobalActionsLayout.updateList();
+            }
         }
 
         private void onRotate(int from, int to) {
