@@ -113,6 +113,12 @@ const val POSITION_ABOVE_GRID = 0
 const val POSITION_BELOW_GRID = 1
 /** Width of the media player in the panel: 1 for half, 2 for full. */
 const val SETTING_QS_MEDIA_SPAN = "qs_media_span"
+/** Where the brightness and volume sliders sit, using the same positions as the folder. */
+const val SETTING_QS_SLIDERS_POSITION = "qs_sliders_position"
+/** Width of the sliders in the panel: 1 for half, 2 for full. */
+const val SETTING_QS_SLIDERS_SPAN = "qs_sliders_span"
+/** Media card style: 0 keeps the stock player, 1 uses the compact artwork card. */
+const val SETTING_QS_MEDIA_STYLE = "qs_media_style"
 
 /** Observes an int secure setting so panel layout changes apply without a restart. */
 @Composable
