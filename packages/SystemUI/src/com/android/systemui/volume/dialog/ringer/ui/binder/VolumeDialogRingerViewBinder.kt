@@ -40,7 +40,9 @@ import com.android.app.tracing.coroutines.launchTraced
 import com.android.internal.R as internalR
 import com.android.internal.graphics.drawable.BackgroundBlurDrawable
 import com.android.systemui.res.R
+import com.android.systemui.volume.VolumePanelStyle
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialogScope
+import com.android.systemui.volume.dialog.domain.interactor.VolumeDialogExpansionInteractor
 import com.android.systemui.volume.dialog.ringer.ui.util.VolumeDialogRingerDrawerTransitionListener
 import com.android.systemui.volume.dialog.ringer.ui.util.updateCloseState
 import com.android.systemui.volume.dialog.ringer.ui.util.updateOpenState
@@ -73,8 +75,13 @@ class VolumeDialogRingerViewBinder
 constructor(
     private val viewModel: VolumeDialogRingerDrawerViewModel,
     private val dialogViewModel: VolumeDialogViewModel,
+    private val expansionInteractor: VolumeDialogExpansionInteractor,
     private val windowRootViewBlurInteractor: WindowRootViewBlurInteractor,
 ) : ViewBinder {
+
+    /** The expandable style is monochrome, so the ringer button follows the pills, not the theme. */
+    private val isExpandableStyle: Boolean
+        get() = expansionInteractor.style == VolumePanelStyle.EXPANDABLE
 
     private val roundnessSpringForce =
         SpringForce(1F).apply {
@@ -111,12 +118,18 @@ constructor(
         }
 
     override fun CoroutineScope.bind(view: View) {
+        if (expansionInteractor.style == VolumePanelStyle.ONE_UI) {
+            // That style has no ringer drawer in its layout - the header sits where it would go.
+            return
+        }
         val volumeDialogBackgroundView = view.requireViewById<View>(R.id.volume_dialog_background)
         val ringerBackgroundView = view.requireViewById<View>(R.id.ringer_buttons_background)
         val drawerContainer = view.requireViewById<MotionLayout>(R.id.volume_ringer_drawer)
 
-        val unselectedButtonUiModel = RingerButtonUiModel.getUnselectedButton(view.context)
-        val selectedButtonUiModel = RingerButtonUiModel.getSelectedButton(view.context)
+        val unselectedButtonUiModel =
+            RingerButtonUiModel.getUnselectedButton(view.context, isExpandableStyle)
+        val selectedButtonUiModel =
+            RingerButtonUiModel.getSelectedButton(view.context, isExpandableStyle)
         val volumeDialogBgSmallRadius =
             view.context.resources.getDimensionPixelSize(
                 R.dimen.volume_dialog_background_square_corner_radius
@@ -152,6 +165,11 @@ constructor(
 
         volumeDialogBackgroundView.updateBackground()
         ringerBackgroundView.updateBackground()
+        if (isExpandableStyle) {
+            // No card behind the ringer buttons either: this style is bare pills and circles. Kept
+            // in the layout rather than gone, because the drawer transitions are constrained to it.
+            ringerBackgroundView.alpha = 0f
+        }
         launchTraced("VDRVB#addTouchableBounds") {
             dialogViewModel.addTouchableBounds(ringerBackgroundView)
         }
@@ -457,6 +475,12 @@ constructor(
     ) {
         // id = buttonViewModel.viewId
         setSelected(isSelected)
+        if (isExpandableStyle) {
+            // The closed drawer stacks the other modes near the selected button. The stock style
+            // hides them behind its card; this one has no card, so they showed through as loose
+            // icons next to the pills.
+            alpha = if (isOpen || isSelected) 1f else 0f
+        }
         val ringerContentDesc = context.getString(buttonViewModel.contentDescriptionResId)
         setImageResource(buttonViewModel.imageResId)
         contentDescription =
@@ -470,16 +494,48 @@ constructor(
             }
         if (isSelected && !isAnimated) {
             setBackgroundResource(R.drawable.volume_drawer_selection_bg)
-            setColorFilter(context.getColor(internalR.color.materialColorOnPrimary))
             background = background.mutate()
+            if (isExpandableStyle) {
+                applyExpandableColors(isSelected = true)
+            } else {
+                setColorFilter(context.getColor(internalR.color.materialColorOnPrimary))
+            }
         } else if (!isAnimated) {
             setBackgroundResource(R.drawable.volume_ringer_item_bg)
-            setColorFilter(context.getColor(internalR.color.materialColorOnSurface))
             background = background.mutate()
+            if (isExpandableStyle) {
+                applyExpandableColors(isSelected = false)
+            } else {
+                setColorFilter(context.getColor(internalR.color.materialColorOnSurface))
+            }
         }
         setOnClickListener {
             viewModel.onRingerButtonClicked(buttonViewModel.ringerMode, isSelected)
         }
+    }
+
+    /** Repaints a drawer button in the monochrome colors of the expandable style. */
+    private fun ImageButton.applyExpandableColors(isSelected: Boolean) {
+        backgroundShape()
+            .setColor(
+                context.getColor(
+                    if (isSelected) {
+                        R.color.volume_panel_expandable_track_active
+                    } else {
+                        R.color.volume_panel_expandable_button_background
+                    }
+                )
+            )
+        background.invalidateSelf()
+        setColorFilter(
+            context.getColor(
+                if (isSelected) {
+                    R.color.volume_panel_expandable_icon_on_active
+                } else {
+                    R.color.volume_panel_expandable_icon_on_inactive
+                }
+            )
+        )
     }
 
     private fun MotionLayout.ensureChildCount(@LayoutRes viewLayoutId: Int, count: Int) {
