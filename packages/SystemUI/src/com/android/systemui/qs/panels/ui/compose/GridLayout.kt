@@ -42,6 +42,8 @@ interface GridLayout {
         forceLargeTiles: Boolean = false,
         listening: () -> Boolean,
         enableRevealEffect: Boolean,
+        /** Drawn under the tiles but above the pager dots and the edit button. */
+        belowTiles: @Composable () -> Unit = {},
     )
 
     @Composable

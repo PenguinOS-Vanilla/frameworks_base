@@ -145,6 +145,13 @@ fun secureIntSetting(key: String, default: Int): Int {
  * The specs the user wants in the folder, defaulting to [ConnectivityFolderSpecs]. Observed so
  * edits apply without restarting SystemUI.
  */
+/** The specs the folder holds, so the grid can leave them out rather than showing them twice. */
+@Composable
+fun connectivityFolderSpecs(): List<String> {
+    val (large, small) = folderSpecs()
+    return large + small
+}
+
 @Composable
 private fun folderSpecs(): Pair<List<String>, List<String>> {
     val resolver = LocalContext.current.contentResolver

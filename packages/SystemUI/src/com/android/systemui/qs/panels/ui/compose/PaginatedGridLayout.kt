@@ -76,6 +76,7 @@ constructor(
         forceLargeTiles: Boolean,
         listening: () -> Boolean,
         enableRevealEffect: Boolean,
+        belowTiles: @Composable () -> Unit,
     ) {
         if (columnsOverride != null || forceLargeTiles) {
             with(delegateGridLayout) {
@@ -180,6 +181,7 @@ constructor(
                     }
                 }
             }
+            belowTiles()
             if (columnsOverride == null && !forceLargeTiles) {
                 FooterBar(
                     buildNumberViewModelFactory = viewModel.buildNumberViewModelFactory,

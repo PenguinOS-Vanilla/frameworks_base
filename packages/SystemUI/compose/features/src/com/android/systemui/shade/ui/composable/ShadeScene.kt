@@ -21,7 +21,9 @@ import com.android.systemui.qs.composefragment.ConnectivityFolder
 import com.android.systemui.qs.composefragment.connectivityFolderEnabled
 import com.android.systemui.qs.composefragment.POSITION_HEADER
 import com.android.systemui.qs.composefragment.SETTING_QS_FOLDER_POSITION
+import com.android.systemui.qs.composefragment.POSITION_ABOVE_GRID
 import com.android.systemui.qs.composefragment.SETTING_QS_FOLDER_SPAN
+import com.android.systemui.qs.composefragment.SETTING_QS_SLIDERS_POSITION
 import com.android.systemui.qs.composefragment.secureIntSetting
 import com.android.systemui.qs.composefragment.VolumeLayout
 import com.android.systemui.qs.panels.ui.compose.TileGrid
@@ -482,7 +484,9 @@ private fun ContentScope.SingleShade(
                                             TileGrid(
                                                 viewModel = viewModel.qsContainerViewModel.tileGridViewModel,
                                                 includeSpecs = top2Specs,
-                                                columnsOverride = if (qqsShowsMedia) null else 1,
+                                                // Always one column: the tiles sit in a half
+                                                // width slot beside media now, not a full row.
+                                                columnsOverride = 1,
                                                 forceLargeTiles = true,
                                                 listening = { listening },
                                                 modifier = Modifier.sysuiResTag("quick_qs_panel"),
@@ -493,6 +497,41 @@ private fun ContentScope.SingleShade(
                                 }
                             }
                         },
+                    secondaryTiles = {
+                        // Beside a half width folder the rest of the row carries tiles, matching
+                        // Quick Settings; with no folder there the left slot already has them.
+                        if (
+                            connectivityFolderEnabled() &&
+                                !qqsShowsMedia &&
+                                secureIntSetting(SETTING_QS_FOLDER_POSITION, POSITION_HEADER) ==
+                                    POSITION_HEADER &&
+                                secureIntSetting(SETTING_QS_FOLDER_SPAN, 1) < 2
+                        ) {
+                            var secondaryListening by remember { mutableStateOf(false) }
+                            LifecycleStartEffect(Unit) {
+                                secondaryListening = true
+                                onStopOrDispose { secondaryListening = false }
+                            }
+                            val secondarySpecs =
+                                remember(
+                                    viewModel.qsContainerViewModel.tileGridViewModel.tileViewModels
+                                ) {
+                                    viewModel.qsContainerViewModel.tileGridViewModel.tileViewModels
+                                        .take(2)
+                                        .map { it.spec }
+                                }
+                            Element(key = QuickSettings.Elements.HeaderTiles, modifier = Modifier) {
+                                TileGrid(
+                                    viewModel =
+                                        viewModel.qsContainerViewModel.tileGridViewModel,
+                                    includeSpecs = secondarySpecs,
+                                    columnsOverride = 1,
+                                    forceLargeTiles = true,
+                                    listening = { secondaryListening },
+                                )
+                            }
+                        }
+                    },
                     media = {
                         if (isAlwaysComposedContentVisible()) {
                             if (viewModel.isQsEnabled && viewModel.showMedia) {
@@ -572,6 +611,7 @@ private val QqsLyingSliderHeight = 56.dp
 @Composable
 private fun ContentScope.MediaAndQqsLayout(
     tiles: @Composable () -> Unit,
+    secondaryTiles: @Composable () -> Unit,
     media: @Composable () -> Unit,
     mediaInRow: Boolean,
     isDefaultStyle: Boolean,
@@ -610,11 +650,18 @@ private fun ContentScope.MediaAndQqsLayout(
             Box(modifier = Modifier.weight(1f).height(QqsHeaderHeight)) {
                 if (showMedia) media() else tiles()
             }
-            if (showMedia) Box(modifier = Modifier.weight(1f)) { tiles() }
+            // A single weighted child would take the whole row, which stretches the square folder
+            // across the panel, so the other half always gets a box even when it is empty.
+            Box(modifier = Modifier.weight(1f)) { if (showMedia) tiles() else secondaryTiles() }
         }
+        // Same rule as the folder: QQS only carries an element that Quick Settings keeps at the
+        // top. Parked below the grid it would have to fly the length of the panel during the
+        // expansion, since both panels share the element key.
+        val slidersAtTop =
+            secureIntSetting(SETTING_QS_SLIDERS_POSITION, POSITION_HEADER) <= POSITION_ABOVE_GRID
         // The pair of lying sliders always takes a whole row: squeezed into half of one they are
         // too short to aim at.
-        Element(key = QuickSettings.Elements.BrightnessSlider, modifier = Modifier) {
+        if (slidersAtTop) Element(key = QuickSettings.Elements.BrightnessSlider, modifier = Modifier) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement =
