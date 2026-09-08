@@ -28,9 +28,11 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Arrangement.spacedBy
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -59,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.android.compose.theme.LocalAndroidColorScheme
 import com.android.systemui.common.shared.model.Icon
+import com.android.compose.modifiers.thenIf
 import com.android.systemui.common.ui.compose.Icon
 import com.android.systemui.plugins.qs.QSTile
 import com.android.systemui.qs.panels.ui.compose.TileListener
@@ -235,6 +238,7 @@ fun ConnectivityFolder(
 
     // Derive the cell size from the height we're asked to fit, so the 2x2 matches the sliders'
     // height exactly rather than overflowing the header row.
+    // In the square the cells share the space evenly; the row sizes to one tile.
     val cell = compactHeight?.let { (it - CardPadding * 2 - CellSpacing) / 2 } ?: CellSize
 
     Column(
@@ -243,34 +247,42 @@ fun ConnectivityFolder(
                 // Always fill the slot: hugging the content left a gap to the sliders far wider
                 // than the gap between tiles, which read as misaligned.
                 .fillMaxWidth()
+                .thenIf(compactHeight != null) { Modifier.aspectRatio(1f) }
                 .clip(RoundedCornerShape(28.dp))
                 .background(glassSurface())
                 .padding(CardPadding),
         verticalArrangement = spacedBy(CellSpacing),
     ) {
         if (compactHeight == null) {
-            // Full width: one row of controls, so the folder costs a single grid row instead of
-            // the two a 2x2 needs and the panel does not overflow.
+            // Full width: a single row of controls, one tile tall.
             Row(horizontalArrangement = spacedBy(CellSpacing), modifier = Modifier.fillMaxWidth()) {
-                large.forEach { tile -> Cell(cell) { FolderCircle(tile, cell * 0.88f) } }
+                large.forEach { tile ->
+                    Cell(cell) { size -> FolderCircle(tile, size * 0.88f) }
+                }
                 if (small.isNotEmpty()) {
-                    Cell(cell) {
-                        SmallCluster(small, cell * 0.34f, onClick = { onExpandedChange(true) })
+                    Cell(cell) { size ->
+                        SmallCluster(small, size * 0.34f, onClick = { onExpandedChange(true) })
                     }
                 }
             }
         } else {
-            // A tight 2x2 of equal cells that hugs its content, the way Control Centre's
-            // connectivity module does. Spreading these across the full panel width left dead gaps.
-            Row(horizontalArrangement = spacedBy(CellSpacing), modifier = Modifier.fillMaxWidth()) {
-                Cell(cell) { large.getOrNull(0)?.let { FolderCircle(it, cell * 0.88f) } }
-                Cell(cell) { large.getOrNull(1)?.let { FolderCircle(it, cell * 0.88f) } }
+            // Half width: a square module, the shape Control Centre uses. Two prominent toggles
+            // across the top, then a third beside the cluster that opens the folder.
+            Row(
+                horizontalArrangement = spacedBy(CellSpacing),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+            ) {
+                Cell(null) { size -> large.getOrNull(0)?.let { FolderCircle(it, size * 0.82f) } }
+                Cell(null) { size -> large.getOrNull(1)?.let { FolderCircle(it, size * 0.82f) } }
             }
-            Row(horizontalArrangement = spacedBy(CellSpacing), modifier = Modifier.fillMaxWidth()) {
-                Cell(cell) { large.getOrNull(2)?.let { FolderCircle(it, cell * 0.96f) } }
-                Cell(cell) {
+            Row(
+                horizontalArrangement = spacedBy(CellSpacing),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+            ) {
+                Cell(null) { size -> large.getOrNull(2)?.let { FolderCircle(it, size * 0.90f) } }
+                Cell(null) { size ->
                     if (small.isNotEmpty()) {
-                        SmallCluster(small, cell * 0.38f, onClick = { onExpandedChange(true) })
+                        SmallCluster(small, size * 0.34f, onClick = { onExpandedChange(true) })
                     }
                 }
             }
@@ -375,12 +387,14 @@ private fun FolderBigCard(tile: TileViewModel) {
 
 /** One of the four equal square cells the folder is built from. */
 @Composable
-private fun RowScope.Cell(height: Dp, content: @Composable () -> Unit) {
-    Box(
-        modifier = Modifier.weight(1f).height(height),
+private fun RowScope.Cell(height: Dp?, content: @Composable (Dp) -> Unit) {
+    BoxWithConstraints(
+        modifier = Modifier.weight(1f).thenIf(height != null) { Modifier.height(height!!) },
         contentAlignment = Alignment.Center,
     ) {
-        content()
+        // The square sizes itself from the panel width, so the controls have to be measured from
+        // the cell they land in rather than from a height passed down.
+        content(minOf(maxWidth, maxHeight))
     }
 }
 
@@ -496,7 +510,7 @@ private fun FolderRow(tile: TileViewModel) {
  * folder does not read as a different material sitting next to them.
  */
 @Composable
-private fun glassSurface(): Color =
+internal fun glassSurface(): Color =
     LocalAndroidColorScheme.current.surfaceEffect1.copy(
         alpha = if (isStockQsStyle) 1f else GlassSurfaceAlpha
     )

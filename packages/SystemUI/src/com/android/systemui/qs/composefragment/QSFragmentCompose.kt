@@ -48,6 +48,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Arrangement.spacedBy
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -1571,6 +1572,7 @@ fun ContentScope.AnimatedSliders(vm: QSFragmentComposeViewModel, enable: Boolean
 @VisibleForTesting
 fun VolumeLayout(
     enable: Boolean,
+    horizontal: Boolean = false,
     vm: QSFragmentComposeViewModel? = null,
     sliderHeight: Dp,
 ) {
@@ -1635,16 +1637,29 @@ fun VolumeLayout(
         AlwaysDarkMode {
             val scope = rememberCoroutineScope()
             val icon = painterResource(id = if (isMuted || currentVolume == 0) R.drawable.ic_volume_off else R.drawable.ic_volume_media)
-            VerticalSlider(
-                scope = scope,
-                value = sliderValue,
-                onValueChanged = onValueChanged,
-                onValueChangeFinished = onValueChangeFinished,
-                onLongPress = toggleMute,
-                icon = icon,
-                modifier = Modifier,
-                housingHeight = sliderHeight
-            )
+            if (horizontal) {
+                HorizontalSlider(
+                    scope = scope,
+                    value = sliderValue,
+                    onValueChanged = onValueChanged,
+                    onValueChangeFinished = onValueChangeFinished,
+                    onLongPress = toggleMute,
+                    icon = icon,
+                    modifier = Modifier,
+                    housingHeight = sliderHeight,
+                )
+            } else {
+                VerticalSlider(
+                    scope = scope,
+                    value = sliderValue,
+                    onValueChanged = onValueChanged,
+                    onValueChangeFinished = onValueChangeFinished,
+                    onLongPress = toggleMute,
+                    icon = icon,
+                    modifier = Modifier,
+                    housingHeight = sliderHeight,
+                )
+            }
         }
     }
 }
@@ -1653,6 +1668,7 @@ fun VolumeLayout(
 @VisibleForTesting
 fun BrightnessLayout(
     enable: Boolean,
+    horizontal: Boolean = false,
     vm: QSFragmentComposeViewModel? = null,
     sliderHeight: Dp,
 ) {
@@ -1768,16 +1784,29 @@ fun BrightnessLayout(
         AlwaysDarkMode {
             val scope = rememberCoroutineScope()
             val icon = painterResource(id = if (isAuto) R.drawable.ic_qs_brightness_auto_on_new else R.drawable.ic_qs_brightness_auto_off_new)
-            VerticalSlider(
-                scope = scope,
-                value = sliderValue,
-                onValueChanged = onValueChanged,
-                onValueChangeFinished = onValueChangeFinished,
-                onLongPress = toggleBrightnessMode,
-                icon = icon,
-                modifier = Modifier,
-                housingHeight = sliderHeight
-            )
+            if (horizontal) {
+                HorizontalSlider(
+                    scope = scope,
+                    value = sliderValue,
+                    onValueChanged = onValueChanged,
+                    onValueChangeFinished = onValueChangeFinished,
+                    onLongPress = toggleBrightnessMode,
+                    icon = icon,
+                    modifier = Modifier,
+                    housingHeight = sliderHeight,
+                )
+            } else {
+                VerticalSlider(
+                    scope = scope,
+                    value = sliderValue,
+                    onValueChanged = onValueChanged,
+                    onValueChangeFinished = onValueChangeFinished,
+                    onLongPress = toggleBrightnessMode,
+                    icon = icon,
+                    modifier = Modifier,
+                    housingHeight = sliderHeight,
+                )
+            }
         }
     }
 }
@@ -1846,6 +1875,102 @@ fun VerticalSlider(
                 .padding(bottom = iconBottomPadding)
                 .size(iconSize)
         )
+    }
+}
+
+/**
+ * A One UI style slider lying on its side: the fill grows from the start and the icon rides at the
+ * leading edge. Half the height of the standing pills, so it can sit between tile rows.
+ */
+@Composable
+fun HorizontalSlider(
+    scope: CoroutineScope,
+    value: Float,
+    onValueChanged: (Float) -> Unit,
+    onValueChangeFinished: (Float) -> Unit,
+    onLongPress: () -> Unit,
+    icon: Painter,
+    modifier: Modifier = Modifier,
+    housingHeight: Dp,
+) {
+    val iconSize = 22.dp
+    val iconStartPadding = 14.dp
+    BoxWithConstraints(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .height(housingHeight)
+                .clip(RoundedCornerShape(percent = 50))
+                .background(
+                    LocalAndroidColorScheme.current.surfaceEffect1.copy(
+                        alpha = if (isStockQsStyle) 1f else 0.45f
+                    )
+                )
+                .sliderGesturesHorizontal(
+                    scope,
+                    onValueChanged,
+                    onValueChangeFinished,
+                    onLongPress,
+                ),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        val fillWidth = maxWidth * value
+        // Same reasoning as the standing slider: a cap wider than the fill is long rounds the two
+        // corners into each other.
+        val fillCapRadius = (housingHeight / 2).coerceAtMost(fillWidth / 2)
+        Box(
+            modifier =
+                Modifier.fillMaxWidth(value)
+                    .fillMaxHeight()
+                    .clip(
+                        RoundedCornerShape(topEnd = fillCapRadius, bottomEnd = fillCapRadius)
+                    )
+                    .background(MaterialTheme.colorScheme.primary)
+        )
+        val iconCovered = fillWidth > iconStartPadding + iconSize
+        Icon(
+            painter = icon,
+            contentDescription = null,
+            tint =
+                if (iconCovered) MaterialTheme.colorScheme.onPrimary
+                else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(start = iconStartPadding).size(iconSize),
+        )
+    }
+}
+
+fun Modifier.sliderGesturesHorizontal(
+    scope: CoroutineScope,
+    onValueChanged: (Float) -> Unit,
+    onValueChangeFinished: (Float) -> Unit,
+    onLongPress: () -> Unit,
+): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val longPressTimeout = viewConfiguration.longPressTimeoutMillis
+        var isLongPress = false
+        val longPressJob =
+            scope.launch {
+                delay(longPressTimeout)
+                onLongPress()
+                isLongPress = true
+            }
+        var lastProgress = 0f
+        drag(down.id) { change ->
+            if (change.pressed) {
+                longPressJob.cancel()
+                if (!isLongPress) {
+                    change.consume()
+                    val newProgress = (change.position.x / size.width).coerceIn(0f, 1f)
+                    lastProgress = newProgress
+                    onValueChanged(newProgress)
+                }
+            }
+        }
+        longPressJob.cancel()
+        if (!isLongPress) {
+            onValueChangeFinished(lastProgress)
+        }
     }
 }
 
