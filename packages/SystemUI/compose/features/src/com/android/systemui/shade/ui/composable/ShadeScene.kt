@@ -439,8 +439,12 @@ private fun ContentScope.SingleShade(
                                         // only while QS keeps it there too. Once the user moves it
                                         // into the grid or widens it, QQS falls back to the tiles
                                         // so the two panels do not disagree.
+                                        // Only in the half width slot: when media takes that
+                                        // slot the tiles below are laid out full width, and a
+                                        // square folder there grows to the whole panel.
                                         val folderInHeader =
                                             connectivityFolderEnabled() &&
+                                                !qqsShowsMedia &&
                                                 secureIntSetting(
                                                     SETTING_QS_FOLDER_POSITION,
                                                     POSITION_HEADER,
@@ -562,6 +566,7 @@ private fun ContentScope.SingleShade(
 
 /** One height for everything in the QQS header row, so media matches the sliders beside it. */
 private val QqsHeaderHeight = 160.dp
+private val QqsLyingSliderHeight = 56.dp
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -605,24 +610,32 @@ private fun ContentScope.MediaAndQqsLayout(
             Box(modifier = Modifier.weight(1f).height(QqsHeaderHeight)) {
                 if (showMedia) media() else tiles()
             }
-            Box(modifier = Modifier.weight(1f)) {
-                Element(key = QuickSettings.Elements.BrightnessSlider, modifier = Modifier) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = spacedBy(
-                            dimensionResource(R.dimen.qs_tile_margin_horizontal),
-                            Alignment.CenterHorizontally
-                        ),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        BrightnessLayout(enable = true, sliderHeight = QqsHeaderHeight)
-                        VolumeLayout(enable = true, sliderHeight = QqsHeaderHeight)
-                    }
+            if (showMedia) Box(modifier = Modifier.weight(1f)) { tiles() }
+        }
+        // The pair of lying sliders always takes a whole row: squeezed into half of one they are
+        // too short to aim at.
+        Element(key = QuickSettings.Elements.BrightnessSlider, modifier = Modifier) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    spacedBy(dimensionResource(R.dimen.qs_tile_margin_horizontal)),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.weight(1f)) {
+                    BrightnessLayout(
+                        enable = true,
+                        horizontal = true,
+                        sliderHeight = QqsLyingSliderHeight,
+                    )
+                }
+                Box(Modifier.weight(1f)) {
+                    VolumeLayout(
+                        enable = true,
+                        horizontal = true,
+                        sliderHeight = QqsLyingSliderHeight,
+                    )
                 }
             }
-        }
-        if (showMedia) {
-            tiles()
         }
     }
 }
