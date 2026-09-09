@@ -27,6 +27,7 @@ import com.android.systemui.media.remedia.ui.viewmodel.MediaCarouselVisibility
 import com.android.systemui.media.remedia.ui.viewmodel.MediaViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.DetailsViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.EditModeViewModel
+import com.android.systemui.qs.panels.ui.viewmodel.toolbar.EditModeButtonViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.MediaInRowInLandscapeViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.TileGridViewModel
 import com.android.systemui.qs.shared.style.QsPanelStyle
@@ -48,6 +49,9 @@ constructor(
     tileGridViewModelFactory: TileGridViewModel.Factory,
     @Assisted private val supportsBrightnessMirroring: Boolean,
     val editModeViewModel: EditModeViewModel,
+    // The MyUI panel lays its own tiles out rather than going through the paginated grid, so it
+    // has to build the edit button itself instead of inheriting the grid's footer bar.
+    val editModeButtonViewModelFactory: EditModeButtonViewModel.Factory,
     val detailsViewModel: DetailsViewModel,
     private val mediaCarouselInteractor: MediaCarouselInteractor,
     val mediaViewModelFactory: MediaViewModel.Factory,

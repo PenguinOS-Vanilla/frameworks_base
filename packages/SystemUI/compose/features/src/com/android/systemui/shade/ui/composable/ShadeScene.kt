@@ -18,12 +18,14 @@ package com.android.systemui.shade.ui.composable
 
 import com.android.systemui.qs.composefragment.BrightnessLayout
 import com.android.systemui.qs.composefragment.ConnectivityFolder
+import com.android.systemui.qs.composefragment.MyUiGridGap
 import com.android.systemui.qs.composefragment.connectivityFolderEnabled
 import com.android.systemui.qs.composefragment.POSITION_HEADER
 import com.android.systemui.qs.composefragment.SETTING_QS_FOLDER_POSITION
 import com.android.systemui.qs.composefragment.POSITION_ABOVE_GRID
 import com.android.systemui.qs.composefragment.SETTING_QS_FOLDER_SPAN
 import com.android.systemui.qs.composefragment.SETTING_QS_SLIDERS_POSITION
+import com.android.systemui.qs.composefragment.SETTING_QS_SLIDERS_SPAN
 import com.android.systemui.qs.composefragment.secureIntSetting
 import com.android.systemui.qs.composefragment.VolumeLayout
 import com.android.systemui.qs.panels.ui.compose.TileGrid
@@ -113,6 +115,8 @@ import com.android.systemui.qs.composefragment.ui.GridAnchor
 import com.android.systemui.qs.footer.ui.compose.FooterActionsWithAnimatedVisibility
 import com.android.systemui.qs.panels.ui.compose.EditMode
 import com.android.systemui.qs.panels.ui.compose.QuickQuickSettings
+import com.android.systemui.qs.ui.composable.MyUiHeaderRow
+import com.android.systemui.qs.ui.composable.MyUiSliderCorner
 import com.android.systemui.qs.shared.style.LocalQsPanelStyle
 import com.android.systemui.qs.shared.style.QsPanelStyle
 import com.android.systemui.qs.shared.ui.QuickSettings
@@ -383,6 +387,7 @@ private fun ContentScope.SingleShade(
             },
             mediaAndQqsHeader = {
                 val isDefaultStyle = viewModel.panelStyle == QsPanelStyle.Default
+                val isMyUiStyle = viewModel.panelStyle == QsPanelStyle.MyUi
                 val qqsShowsMedia =
                     !isDefaultStyle &&
                         viewModel.isQsEnabled &&
@@ -558,6 +563,16 @@ private fun ContentScope.SingleShade(
                     },
                     mediaInRow = mediaInRow,
                     isDefaultStyle = isDefaultStyle,
+                    isMyUiStyle = isMyUiStyle,
+                    myUiHeader = {
+                        // The same block Quick Settings puts at its top, with the same element
+                        // keys, so expanding the shade morphs it in place rather than moving it.
+                        MyUiHeaderRow(
+                            tiles =
+                                viewModel.qsContainerViewModel.tileGridViewModel.tileViewModels,
+                            interactable = true,
+                        )
+                    },
                     showMedia = qqsShowsMedia,
                 )
                 }
@@ -615,11 +630,25 @@ private fun ContentScope.MediaAndQqsLayout(
     media: @Composable () -> Unit,
     mediaInRow: Boolean,
     isDefaultStyle: Boolean,
+    isMyUiStyle: Boolean,
+    myUiHeader: @Composable () -> Unit,
     showMedia: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val modifierAnimated =
         modifier.animateContentSizeNoClip(MaterialTheme.motionScheme.defaultSpatialSpec())
+    if (isMyUiStyle) {
+        // MyUI's QQS is its QS header and nothing else: the tiles below it are what the expansion
+        // reveals, so anything extra here would have to be animated away again.
+        Column(
+            modifier = modifierAnimated.fillMaxWidth(),
+            verticalArrangement = spacedBy(MyUiGridGap),
+        ) {
+            myUiHeader()
+            if (showMedia) media()
+        }
+        return
+    }
     if (isDefaultStyle) {
         if (mediaInRow) {
             Row(
@@ -661,25 +690,37 @@ private fun ContentScope.MediaAndQqsLayout(
             secureIntSetting(SETTING_QS_SLIDERS_POSITION, POSITION_HEADER) <= POSITION_ABOVE_GRID
         // The pair of lying sliders always takes a whole row: squeezed into half of one they are
         // too short to aim at.
+        // Quick Settings gives the narrow slider cell the standing pair; QQS has to show the same
+        // thing, or the shared element would change shape halfway through the expansion.
+        val slidersStanding = secureIntSetting(SETTING_QS_SLIDERS_SPAN, 1) < 2
+        val standingHeight =
+            dimensionResource(R.dimen.common_tile_default_tile_height) * 2 +
+                dimensionResource(R.dimen.qs_tile_margin_vertical)
+        val gap = dimensionResource(R.dimen.qs_tile_margin_horizontal)
         if (slidersAtTop) Element(key = QuickSettings.Elements.BrightnessSlider, modifier = Modifier) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                    spacedBy(dimensionResource(R.dimen.qs_tile_margin_horizontal)),
+                horizontalArrangement = spacedBy(gap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.weight(1f)) {
-                    BrightnessLayout(
+                    VolumeLayout(
                         enable = true,
-                        horizontal = true,
-                        sliderHeight = QqsLyingSliderHeight,
+                        horizontal = !slidersStanding,
+                        verticalCornerRadius = MyUiSliderCorner,
+                        verticalWidth = null,
+                        sliderHeight =
+                            if (slidersStanding) standingHeight else QqsLyingSliderHeight,
                     )
                 }
                 Box(Modifier.weight(1f)) {
-                    VolumeLayout(
+                    BrightnessLayout(
                         enable = true,
-                        horizontal = true,
-                        sliderHeight = QqsLyingSliderHeight,
+                        horizontal = !slidersStanding,
+                        verticalCornerRadius = MyUiSliderCorner,
+                        verticalWidth = null,
+                        sliderHeight =
+                            if (slidersStanding) standingHeight else QqsLyingSliderHeight,
                     )
                 }
             }

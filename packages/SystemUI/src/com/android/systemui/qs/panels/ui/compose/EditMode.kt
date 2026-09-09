@@ -40,10 +40,12 @@ import com.android.systemui.qs.composefragment.SETTING_QS_SLIDERS_POSITION
 import com.android.systemui.qs.composefragment.SETTING_QS_SLIDERS_SPAN
 import com.android.systemui.qs.composefragment.SETTING_QS_MEDIA_POSITION
 import com.android.systemui.qs.panels.ui.viewmodel.AvailableEditActions
+import com.android.systemui.qs.composefragment.secureIntSetting
 import com.android.systemui.qs.panels.ui.viewmodel.EditModeViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.EditTileViewModel
 import com.android.systemui.qs.pipeline.shared.TileSpec
 import com.android.systemui.qs.shared.model.TileCategory
+import com.android.systemui.qs.shared.style.QsPanelStyle
 import com.android.systemui.res.R
 
 /**
@@ -95,13 +97,24 @@ private fun EditModeContent(viewModel: EditModeViewModel, modifier: Modifier = M
 
     DisposableEffect(Unit) { onDispose { viewModel.stopEditing() } }
 
+    // MyUI fixes the card, the sliders and the media player in place, so editing there is about
+    // tiles only and the panel elements never join the grid.
+    val panelElementsEditable =
+        QsPanelStyle.fromValue(
+            secureIntSetting(QsPanelStyle.SETTING_NAME, QsPanelStyle.Penguin.value)
+        ) != QsPanelStyle.MyUi
+
     Column(modifier) {
         gridLayout.EditTileGrid(
-            tiles.withPanelElements(resolver),
+            if (panelElementsEditable) tiles.withPanelElements(resolver) else tiles,
             Modifier,
             viewModel::addTile,
             { spec -> if (spec.isPanelElement()) resolver.park(spec) else viewModel.removeTile(spec) },
-            { specs -> viewModel.setTiles(specs.stripPanelElements(resolver)) },
+            { specs ->
+                viewModel.setTiles(
+                    if (panelElementsEditable) specs.stripPanelElements(resolver) else specs
+                )
+            },
             viewModel::stopEditing,
         )
     }

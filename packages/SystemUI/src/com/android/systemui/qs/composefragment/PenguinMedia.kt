@@ -36,6 +36,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,12 +78,32 @@ private val ControlSize = 40.dp
  * A Control-Centre style media module: a square card with the artwork as a thumbnail, the track and
  * artist beneath it, and previous, play/pause and next along the bottom.
  */
+/**
+ * True while the card is a live player. Edit mode previews the same card, and there a tap has to
+ * reach the cell underneath rather than pause the music.
+ */
+private val LocalMediaCardInteractive = compositionLocalOf { true }
+
 @Composable
 fun PenguinMediaCard(
     viewModelFactory: MediaViewModel.Factory,
     behavior: MediaUiBehavior,
     modifier: Modifier = Modifier,
     square: Boolean = true,
+    /** Edit mode renders the real card as a preview, where its controls must not fire. */
+    interactive: Boolean = true,
+) {
+    CompositionLocalProvider(LocalMediaCardInteractive provides interactive) {
+        PenguinMediaCardContent(viewModelFactory, behavior, modifier, square)
+    }
+}
+
+@Composable
+private fun PenguinMediaCardContent(
+    viewModelFactory: MediaViewModel.Factory,
+    behavior: MediaUiBehavior,
+    modifier: Modifier,
+    square: Boolean,
 ) {
     val context = LocalContext.current
     val viewModel =
@@ -292,11 +314,16 @@ private fun MediaControl(
     tint: Color? = null,
 ) {
     val model = action as? MediaSecondaryActionViewModel.Action ?: return
+    val interactive = LocalMediaCardInteractive.current
     Box(
         modifier =
             Modifier.size(size)
                 .clip(CircleShape)
-                .then(model.onClick?.let { Modifier.clickable(onClick = it) } ?: Modifier),
+                .then(
+                    model.onClick
+                        ?.takeIf { interactive }
+                        ?.let { Modifier.clickable(onClick = it) } ?: Modifier
+                ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
