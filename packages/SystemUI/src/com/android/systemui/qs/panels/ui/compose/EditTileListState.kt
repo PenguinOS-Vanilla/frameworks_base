@@ -218,7 +218,17 @@ class EditTileListState(
 
     private fun List<EditTileViewModel>.toGridCells(largeTiles: Set<TileSpec>): List<GridCell> {
         return map {
-                SizedTileImpl(it, if (largeTiles.contains(it.tileSpec)) largeTilesSpan else 1)
+                SizedTileImpl(
+                    it,
+                    // A panel element is never an icon: its resize picks the width it takes in
+                    // the panel, so shrinking its cell to one column would preview a shape the
+                    // panel cannot show.
+                    if (it.tileSpec in PANEL_ELEMENT_SPECS || largeTiles.contains(it.tileSpec)) {
+                        largeTilesSpan
+                    } else {
+                        1
+                    },
+                )
             }
             .toGridCells(columns)
     }

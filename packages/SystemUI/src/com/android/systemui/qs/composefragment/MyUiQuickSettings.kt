@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +53,21 @@ import androidx.lifecycle.compose.LifecycleStartEffect
 import com.android.systemui.common.ui.compose.Icon
 import com.android.systemui.qs.panels.ui.compose.TileListener
 import com.android.systemui.qs.panels.ui.viewmodel.TileViewModel
+
+/**
+ * True while MyUI's controls are live. Edit mode draws the card as a preview of the panel, where a
+ * tap must not toggle Wi-Fi.
+ */
+internal val LocalMyUiInteractive = compositionLocalOf { true }
+
+/** [combinedClickable] that does nothing while MyUI is only being previewed. */
+@Composable
+private fun Modifier.myUiClickable(onClick: () -> Unit, onLongClick: () -> Unit): Modifier =
+    if (LocalMyUiInteractive.current) {
+        combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    } else {
+        this
+    }
 
 /** Specs the connectivity card lists, in order, when the tile is present. */
 private val CardSpecs = listOf("internet", "wifi", "cell", "bt")
@@ -104,7 +120,7 @@ private fun MyUiCardRow(tile: TileViewModel) {
     Row(
         modifier =
             Modifier.fillMaxWidth()
-                .combinedClickable(
+                .myUiClickable(
                     onClick = { tile.primaryAction(uiState) },
                     onLongClick = { tile.settingsClick(null) },
                 )
@@ -175,7 +191,7 @@ fun MyUiTile(tile: TileViewModel, modifier: Modifier = Modifier) {
                 .background(
                     if (active) MaterialTheme.colorScheme.inverseSurface else glassSurface()
                 )
-                .combinedClickable(
+                .myUiClickable(
                     onClick = { tile.primaryAction(uiState) },
                     onLongClick = { tile.settingsClick(null) },
                 )

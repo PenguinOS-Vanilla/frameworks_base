@@ -69,6 +69,7 @@ import com.android.systemui.qs.panels.ui.viewmodel.TileViewModel
 import com.android.systemui.lifecycle.rememberViewModel
 import com.android.systemui.qs.panels.ui.compose.toolbar.EditModeButton
 import com.android.systemui.qs.composefragment.MyUiCardSpecs
+import com.android.systemui.qs.composefragment.LocalMyUiInteractive
 import com.android.systemui.qs.composefragment.MyUiGridGap
 import com.android.systemui.qs.composefragment.MyUiTileAspect
 import com.android.systemui.qs.composefragment.MyUiConnectivityCard
@@ -419,7 +420,11 @@ private fun ContentScope.PenguinQuickSettingsContent(
                             // The panel cannot scroll, so sliders parked around the grid have to
                             // fit whatever room the grid leaves rather than keeping header height.
                             add(
-                                PanelElement(slidersSpan, slidersOrder) {
+                                PanelElement(
+                                    slidersSpan,
+                                    slidersOrder,
+                                    alignEnd = slidersSpan < 2,
+                                ) {
                                     if (slidersSpan < 2) {
                                         QsStandingSliders(
                                             sliderHeight = standingSliderHeight,
@@ -568,6 +573,60 @@ fun panelElementPreviews(
 }
 
 /**
+ * What MyUI fixes above its tiles, for edit mode: the connectivity card and the two standing
+ * sliders exactly as the panel draws them, minus the taps. MyUI does not let these be arranged, so
+ * edit mode shows them rather than offering them as cells. Every other style puts them in the grid
+ * instead and gets nothing here.
+ */
+@Composable
+fun qsHeaderPreview(viewModel: QuickSettingsContainerViewModel): (@Composable () -> Unit)? {
+    val style =
+        QsPanelStyle.fromValue(
+            secureIntSetting(QsPanelStyle.SETTING_NAME, QsPanelStyle.Penguin.value)
+        )
+    if (style != QsPanelStyle.MyUi) return null
+    val tiles = viewModel.tileGridViewModel.tileViewModels
+    return {
+        val gap = MyUiGridGap
+        CompositionLocalProvider(LocalMyUiInteractive provides false) {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val column = (maxWidth - gap * 3) / 4
+                val headerHeight = column / MyUiTileAspect * 2 + gap
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(headerHeight),
+                    horizontalArrangement = spacedBy(gap),
+                ) {
+                    // Same nesting as the panel: the card takes two of the four columns and the
+                    // sliders share the other two, so the preview keeps the panel's proportions.
+                    Box(Modifier.weight(1f)) { MyUiConnectivityCard(tiles = tiles) }
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = spacedBy(gap),
+                    ) {
+                        Box(Modifier.weight(1f)) {
+                            VolumeLayout(
+                                enable = false,
+                                verticalCornerRadius = MyUiSliderCorner,
+                                verticalWidth = null,
+                                sliderHeight = headerHeight,
+                            )
+                        }
+                        Box(Modifier.weight(1f)) {
+                            BrightnessLayout(
+                                enable = false,
+                                verticalCornerRadius = MyUiSliderCorner,
+                                verticalWidth = null,
+                                sliderHeight = headerHeight,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Draws a panel element at the width the panel gives it, lets it take its own natural height, and
  * scales the result down to fit the edit cell, so the cell shows a true miniature. Laid out at cell
  * size instead, the elements reflow into shapes Quick Settings never puts on screen.
@@ -587,10 +646,15 @@ private fun PanelElementPreview(span: Int, content: @Composable () -> Unit) {
                     // squeezed into the cell.
                     val placeable =
                         measurable.measure(Constraints(minWidth = target, maxWidth = target))
+                    // Shrink to fit if the cell is smaller, but never magnify: scaled up, a
+                    // 22dp corner reads as a pill and the element stops looking like the panel's.
                     val scale =
                         min(
-                            constraints.maxWidth.toFloat() / placeable.width.coerceAtLeast(1),
-                            constraints.maxHeight.toFloat() / placeable.height.coerceAtLeast(1),
+                            1f,
+                            min(
+                                constraints.maxWidth.toFloat() / placeable.width.coerceAtLeast(1),
+                                constraints.maxHeight.toFloat() / placeable.height.coerceAtLeast(1),
+                            ),
                         )
                     layout(constraints.maxWidth, constraints.maxHeight) {
                         placeable.placeWithLayer(
@@ -617,6 +681,8 @@ private val PenguinMediaHeight = 132.dp
 private class PanelElement(
     val span: Int,
     val order: Int,
+    /** Half width and alone on its row, this one sits after the filler rather than before it. */
+    val alignEnd: Boolean = false,
     val content: @Composable () -> Unit,
 )
 
@@ -633,9 +699,12 @@ private fun PanelElementRows(
     elements.filter { it.span >= 2 }.forEach { Box(Modifier.fillMaxWidth()) { it.content() } }
     elements.filter { it.span < 2 }.chunked(2).forEach { pair ->
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = spacedBy(gap)) {
+            // A half width element on its own would leave the rest of the row empty. Which side
+            // the filler takes matters: QQS carries the standing sliders in its header row's right
+            // half, and putting them left here would fly them across the panel as it expands.
+            if (pair.size == 1 && pair[0].alignEnd) Box(Modifier.weight(1f)) { filler() }
             pair.forEach { element -> Box(Modifier.weight(1f)) { element.content() } }
-            // A half width element on its own would leave the rest of the row empty.
-            if (pair.size == 1) Box(Modifier.weight(1f)) { filler() }
+            if (pair.size == 1 && !pair[0].alignEnd) Box(Modifier.weight(1f)) { filler() }
         }
     }
 }

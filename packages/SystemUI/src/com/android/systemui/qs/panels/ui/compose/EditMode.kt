@@ -64,7 +64,7 @@ fun TileSpec.panelSpanSetting(): String? =
     when (this) {
         FOLDER_SPEC -> SETTING_QS_FOLDER_SPAN
         MEDIA_SPEC -> SETTING_QS_MEDIA_SPAN
-        // The sliders are a pair, so they are always a full row and cannot be resized.
+        SLIDERS_SPEC -> SETTING_QS_SLIDERS_SPAN
         else -> null
     }
 
@@ -76,13 +76,23 @@ fun TileSpec.panelSpanSetting(): String? =
 val LocalPanelElementPreview =
     compositionLocalOf<Map<TileSpec, @Composable () -> Unit>> { emptyMap() }
 
+/**
+ * What the panel puts above the tiles, for styles that fix it in place. Null for styles where the
+ * user arranges those elements themselves and they appear in the grid instead.
+ */
+val LocalQsHeaderPreview = compositionLocalOf<(@Composable () -> Unit)?> { null }
+
 @Composable
 fun EditMode(
     viewModel: EditModeViewModel,
     modifier: Modifier = Modifier,
     previews: Map<TileSpec, @Composable () -> Unit> = emptyMap(),
+    headerPreview: (@Composable () -> Unit)? = null,
 ) {
-    CompositionLocalProvider(LocalPanelElementPreview provides previews) {
+    CompositionLocalProvider(
+        LocalPanelElementPreview provides previews,
+        LocalQsHeaderPreview provides headerPreview,
+    ) {
         EditModeContent(viewModel, modifier)
     }
 }
