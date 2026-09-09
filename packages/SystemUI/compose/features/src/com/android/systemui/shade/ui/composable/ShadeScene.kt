@@ -19,6 +19,8 @@ package com.android.systemui.shade.ui.composable
 import com.android.systemui.qs.composefragment.BrightnessLayout
 import com.android.systemui.qs.composefragment.ConnectivityFolder
 import com.android.systemui.qs.composefragment.MyUiGridGap
+import com.android.systemui.qs.composefragment.PenguinMediaCard
+import com.android.systemui.qs.composefragment.SETTING_QS_MEDIA_STYLE
 import com.android.systemui.qs.composefragment.connectivityFolderEnabled
 import com.android.systemui.qs.composefragment.POSITION_HEADER
 import com.android.systemui.qs.composefragment.SETTING_QS_FOLDER_POSITION
@@ -446,9 +448,6 @@ private fun ContentScope.SingleShade(
                                         // only while QS keeps it there too. Once the user moves it
                                         // into the grid or widens it, QQS falls back to the tiles
                                         // so the two panels do not disagree.
-                                        // Only in the half width slot: when media takes that
-                                        // slot the tiles below are laid out full width, and a
-                                        // square folder there grows to the whole panel.
                                         val folderInHeader =
                                             connectivityFolderEnabled() &&
                                                 !qqsShowsMedia &&
@@ -502,6 +501,26 @@ private fun ContentScope.SingleShade(
                                 }
                             }
                         },
+                    qqsFolder = {
+                        // Quick Settings keeps the folder beside media in its header, so QQS puts
+                        // it in the slot media did not take rather than dropping it.
+                        val tileHeight =
+                            dimensionResource(id = R.dimen.common_tile_default_tile_height)
+                        val tileSpacing = dimensionResource(id = R.dimen.qs_tile_margin_vertical)
+                        ConnectivityFolder(
+                            tiles = viewModel.qsContainerViewModel.tileGridViewModel.tileViewModels,
+                            modifier =
+                                Modifier.element(QuickSettings.Elements.ConnectivityFolder)
+                                    .sysuiResTag("quick_qs_panel"),
+                            compactHeight = tileHeight * 2 + tileSpacing,
+                        )
+                    },
+                    qqsShowsFolder =
+                        qqsShowsMedia &&
+                            connectivityFolderEnabled() &&
+                            secureIntSetting(SETTING_QS_FOLDER_POSITION, POSITION_HEADER) ==
+                                POSITION_HEADER &&
+                            secureIntSetting(SETTING_QS_FOLDER_SPAN, 1) < 2,
                     secondaryTiles = {
                         // Beside a half width folder the rest of the row carries tiles, matching
                         // Quick Settings; with no folder there the left slot already has them.
@@ -564,6 +583,28 @@ private fun ContentScope.SingleShade(
                     mediaInRow = mediaInRow,
                     isDefaultStyle = isDefaultStyle,
                     isMyUiStyle = isMyUiStyle,
+                    myUiMedia = {
+                        // MyUI's Quick Settings draws the media card the style setting picks, so
+                        // QQS has to draw the same one: sharing the element key while rendering a
+                        // different widget swapped the player mid expansion.
+                        Element(key = Media.Elements.MediaCarousel, modifier = Modifier) {
+                            if (secureIntSetting(SETTING_QS_MEDIA_STYLE, 0) != 0) {
+                                PenguinMediaCard(
+                                    viewModelFactory = viewModel.mediaViewModelFactory,
+                                    behavior = ShadeSceneContentViewModel.qqsMediaUiBehavior,
+                                    square = false,
+                                )
+                            } else {
+                                Media(
+                                    viewModelFactory = viewModel.mediaViewModelFactory,
+                                    presentationStyle = MediaPresentationStyle.Default,
+                                    behavior = ShadeSceneContentViewModel.qqsMediaUiBehavior,
+                                    onDismissed = viewModel::onMediaSwipeToDismiss,
+                                    location = Media.Location.SHADE,
+                                )
+                            }
+                        }
+                    },
                     myUiHeader = {
                         // The same block Quick Settings puts at its top, with the same element
                         // keys, so expanding the shade morphs it in place rather than moving it.
@@ -627,11 +668,14 @@ private val QqsLyingSliderHeight = 56.dp
 private fun ContentScope.MediaAndQqsLayout(
     tiles: @Composable () -> Unit,
     secondaryTiles: @Composable () -> Unit,
+    qqsFolder: @Composable () -> Unit,
+    qqsShowsFolder: Boolean,
     media: @Composable () -> Unit,
     mediaInRow: Boolean,
     isDefaultStyle: Boolean,
     isMyUiStyle: Boolean,
     myUiHeader: @Composable () -> Unit,
+    myUiMedia: @Composable () -> Unit,
     showMedia: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -645,7 +689,7 @@ private fun ContentScope.MediaAndQqsLayout(
             verticalArrangement = spacedBy(MyUiGridGap),
         ) {
             myUiHeader()
-            if (showMedia) media()
+            if (showMedia) myUiMedia()
         }
         return
     }
@@ -671,25 +715,11 @@ private fun ContentScope.MediaAndQqsLayout(
         modifier = modifierAnimated.fillMaxWidth(),
         verticalArrangement = spacedBy(dimensionResource(R.dimen.qs_tile_margin_vertical)),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = spacedBy(dimensionResource(R.dimen.qs_tile_margin_horizontal)),
-            verticalAlignment = Alignment.Top,
-        ) {
-            Box(modifier = Modifier.weight(1f).height(QqsHeaderHeight)) {
-                if (showMedia) media() else tiles()
-            }
-            // A single weighted child would take the whole row, which stretches the square folder
-            // across the panel, so the other half always gets a box even when it is empty.
-            Box(modifier = Modifier.weight(1f)) { if (showMedia) tiles() else secondaryTiles() }
-        }
         // Same rule as the folder: QQS only carries an element that Quick Settings keeps at the
         // top. Parked below the grid it would have to fly the length of the panel during the
         // expansion, since both panels share the element key.
         val slidersAtTop =
             secureIntSetting(SETTING_QS_SLIDERS_POSITION, POSITION_HEADER) <= POSITION_ABOVE_GRID
-        // The pair of lying sliders always takes a whole row: squeezed into half of one they are
-        // too short to aim at.
         // Quick Settings gives the narrow slider cell the standing pair; QQS has to show the same
         // thing, or the shared element would change shape halfway through the expansion.
         val slidersStanding = secureIntSetting(SETTING_QS_SLIDERS_SPAN, 1) < 2
@@ -697,31 +727,77 @@ private fun ContentScope.MediaAndQqsLayout(
             dimensionResource(R.dimen.common_tile_default_tile_height) * 2 +
                 dimensionResource(R.dimen.qs_tile_margin_vertical)
         val gap = dimensionResource(R.dimen.qs_tile_margin_horizontal)
-        if (slidersAtTop) Element(key = QuickSettings.Elements.BrightnessSlider, modifier = Modifier) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = spacedBy(gap),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.weight(1f)) {
-                    VolumeLayout(
-                        enable = true,
-                        horizontal = !slidersStanding,
-                        verticalCornerRadius = MyUiSliderCorner,
-                        verticalWidth = null,
-                        sliderHeight =
-                            if (slidersStanding) standingHeight else QqsLyingSliderHeight,
-                    )
+        // Standing, each slider is a quarter of the panel, the width Quick Settings gives it, so
+        // the pair takes the header row's other half. Given a row of its own it would have to
+        // stretch to two half width slabs, which is nothing the panel ever shows.
+        val slidersInHeader = slidersAtTop && slidersStanding
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = spacedBy(gap),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Box(modifier = Modifier.weight(1f).height(QqsHeaderHeight)) {
+                if (showMedia) media() else tiles()
+            }
+            if (slidersInHeader) {
+                Element(
+                    key = QuickSettings.Elements.BrightnessSlider,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = spacedBy(gap)) {
+                        Box(Modifier.weight(1f)) {
+                            VolumeLayout(
+                                enable = true,
+                                verticalCornerRadius = MyUiSliderCorner,
+                                verticalWidth = null,
+                                sliderHeight = standingHeight,
+                            )
+                        }
+                        Box(Modifier.weight(1f)) {
+                            BrightnessLayout(
+                                enable = true,
+                                verticalCornerRadius = MyUiSliderCorner,
+                                verticalWidth = null,
+                                sliderHeight = standingHeight,
+                            )
+                        }
+                    }
                 }
-                Box(Modifier.weight(1f)) {
-                    BrightnessLayout(
-                        enable = true,
-                        horizontal = !slidersStanding,
-                        verticalCornerRadius = MyUiSliderCorner,
-                        verticalWidth = null,
-                        sliderHeight =
-                            if (slidersStanding) standingHeight else QqsLyingSliderHeight,
-                    )
+            } else {
+                // A single weighted child would take the whole row, which stretches the square
+                // folder across the panel, so the other half always gets a box even when empty.
+                Box(modifier = Modifier.weight(1f)) {
+                    when {
+                        qqsShowsFolder -> qqsFolder()
+                        showMedia -> tiles()
+                        else -> secondaryTiles()
+                    }
+                }
+            }
+        }
+        // The pair of lying sliders always takes a whole row: squeezed into half of one they are
+        // too short to aim at.
+        if (slidersAtTop && !slidersStanding) {
+            Element(key = QuickSettings.Elements.BrightnessSlider, modifier = Modifier) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = spacedBy(gap),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.weight(1f)) {
+                        VolumeLayout(
+                            enable = true,
+                            horizontal = true,
+                            sliderHeight = QqsLyingSliderHeight,
+                        )
+                    }
+                    Box(Modifier.weight(1f)) {
+                        BrightnessLayout(
+                            enable = true,
+                            horizontal = true,
+                            sliderHeight = QqsLyingSliderHeight,
+                        )
+                    }
                 }
             }
         }
