@@ -42,6 +42,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -192,10 +194,30 @@ private const val GlassSurfaceAlpha = 0.45f
 private val CardPadding = 10.dp
 private val CellSpacing = 6.dp
 
+/**
+ * True while the folder is a live control. Edit mode draws the same card as a preview of what the
+ * panel will show, and there a tap has to reach the cell underneath rather than toggle Wi-Fi.
+ */
+private val LocalFolderInteractive = compositionLocalOf { true }
+
+/** [combinedClickable] that does nothing while the folder is only being previewed. */
+@Composable
+private fun Modifier.folderClickable(
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = onClick,
+): Modifier =
+    if (LocalFolderInteractive.current) {
+        combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    } else {
+        this
+    }
+
 @Composable
 fun ConnectivityFolder(
     tiles: List<TileViewModel>,
     modifier: Modifier = Modifier,
+    /** Edit mode renders the real card as a preview, where its own toggles must not fire. */
+    interactive: Boolean = true,
     /** Collapsed height to fit, so the card lines up with the sliders beside it. */
     compactHeight: Dp? = null,
     /**
@@ -205,6 +227,19 @@ fun ConnectivityFolder(
      */
     expanded: Boolean = false,
     onExpandedChange: (Boolean) -> Unit = {},
+) {
+    CompositionLocalProvider(LocalFolderInteractive provides interactive) {
+        ConnectivityFolderContent(tiles, modifier, compactHeight, expanded, onExpandedChange)
+    }
+}
+
+@Composable
+private fun ConnectivityFolderContent(
+    tiles: List<TileViewModel>,
+    modifier: Modifier,
+    compactHeight: Dp?,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
 ) {
     // Key on the raw spec string: TileSpec.toString() renders as "P(wifi)" / "C(pkg/cls)", so
     // matching against it would never hit.
@@ -331,7 +366,9 @@ private fun ExpandedSheet(
                 text = stringResource(R.string.quick_settings_done),
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onDone),
+                modifier =
+                    Modifier.clip(RoundedCornerShape(12.dp))
+                        .folderClickable(onClick = onDone),
             )
         }
         // Airplane mode and the like read as a switch, so they stay single line above the cards,
@@ -358,7 +395,7 @@ private fun FolderBigCard(tile: TileViewModel) {
                 .height(BigCardHeight)
                 .clip(RoundedCornerShape(26.dp))
                 .background(glassSurface())
-                .combinedClickable(
+                .folderClickable(
                     onClick = { tile.primaryAction(uiState) },
                     onLongClick = { tile.settingsClick(null) },
                 )
@@ -415,7 +452,7 @@ private fun FolderCircle(tile: TileViewModel, diameter: Dp) {
             Modifier.size(diameter)
                 .clip(CircleShape)
                 .background(folderBackground(active))
-                .combinedClickable(
+                .folderClickable(
                     onClick = { tile.primaryAction(uiState) },
                     onLongClick = { tile.settingsClick(null) },
                 ),
@@ -431,7 +468,7 @@ private fun SmallCluster(tiles: List<TileViewModel>, dot: Dp, onClick: () -> Uni
     Box(
         modifier =
             Modifier.clip(RoundedCornerShape(20.dp))
-                .combinedClickable(onClick = onClick, onLongClick = onClick)
+                .folderClickable(onClick = onClick)
                 .padding(4.dp)
     ) {
         Column(
@@ -476,7 +513,7 @@ private fun FolderRow(tile: TileViewModel) {
             Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(26.dp))
                 .background(glassSurface())
-                .combinedClickable(
+                .folderClickable(
                     onClick = { tile.primaryAction(uiState) },
                     onLongClick = { tile.settingsClick(null) },
                 )
@@ -532,7 +569,7 @@ private fun folderForeground(active: Boolean): Color =
 
 /** Keeps a tile's UI state and icon in sync, the same way [Tile] does for the grid. */
 @Composable
-private fun rememberTileState(tile: TileViewModel): Pair<TileUiState, Icon> {
+internal fun rememberTileState(tile: TileViewModel): Pair<TileUiState, Icon> {
     val context = LocalContext.current
     val resources = context.resources
     // One collector, not two. Collecting tile.state twice per tile meant 12 flows for six tiles,
@@ -552,7 +589,7 @@ private fun rememberTileState(tile: TileViewModel): Pair<TileUiState, Icon> {
  * Mirrors Tile.kt's private getTileIcon: resolve a tile's icon to a compose [Icon], falling back to
  * the error glyph so a misbehaving tile cannot crash the folder.
  */
-private fun Context.folderIcon(icon: IconProvider): Icon {
+internal fun Context.folderIcon(icon: IconProvider): Icon {
     return icon.icon?.let {
         if (it is QSTileImpl.ResourceIcon) {
             Icon.Resource(it.resId, null)
@@ -600,6 +637,6 @@ fun connectivityFolderEnabled(): Boolean {
  * tile's detail view. mainClick() is the label action, so using it here opened the Bluetooth
  * dialog instead of switching Bluetooth on. Prefer the toggle when the tile offers one.
  */
-private fun TileViewModel.primaryAction(uiState: TileUiState) {
+internal fun TileViewModel.primaryAction(uiState: TileUiState) {
     if (uiState.handlesToggleClick) toggleClick() else mainClick(null)
 }

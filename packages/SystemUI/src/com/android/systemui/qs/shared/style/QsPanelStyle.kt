@@ -22,7 +22,10 @@ enum class QsPanelStyle(val value: Int) {
     Default(0),
 
     /** PenguinOS redesign: vertical brightness/volume sliders, paired header, single-tone tiles. */
-    Penguin(1);
+    Penguin(1),
+
+    /** MyUI: a connectivity card beside two standing sliders, over a grid of labelled tiles. */
+    MyUi(2);
 
     companion object {
         const val SETTING_NAME = "qs_panel_style"

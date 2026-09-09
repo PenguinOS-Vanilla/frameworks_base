@@ -172,6 +172,7 @@ import com.android.systemui.qs.panels.ui.compose.DragAndDropState
 import com.android.systemui.qs.panels.ui.compose.DragType
 import com.android.systemui.qs.panels.ui.compose.EditTileListState
 import com.android.systemui.qs.panels.ui.compose.LocalPanelElementPreview
+import com.android.systemui.qs.panels.ui.compose.PANEL_ELEMENT_SPECS
 import com.android.systemui.qs.panels.ui.compose.EditTileListState.Companion.INVALID_INDEX
 import com.android.systemui.qs.panels.ui.compose.dragAndDropRemoveZone
 import com.android.systemui.qs.panels.ui.compose.dragAndDropTileList
@@ -664,9 +665,21 @@ private fun CurrentTilesGrid(
 ) {
     val currentListState by rememberUpdatedState(listState)
     val totalRows = listState.tiles.lastOrNull()?.row ?: 0
+    // Every row holding a panel element is a tile row taller than the rest.
+    val panelRows =
+        listState.tiles
+            .filterIsInstance<TileGridCell>()
+            .filter { it.tile.tileSpec in PANEL_ELEMENT_SPECS }
+            .map { it.row }
+            .toSet()
     val totalHeight by
         animateDpAsState(
-            gridHeight(totalRows + 1, tileHeight(), TileArrangementPadding, CurrentTilesGridPadding),
+            gridHeight(
+                totalRows + 1,
+                tileHeight(),
+                TileArrangementPadding,
+                CurrentTilesGridPadding,
+            ) + (tileHeight() + TileArrangementPadding) * panelRows.size,
             label = "QSEditCurrentTilesGridHeight",
         )
     val gridState = rememberLazyGridState()
@@ -1055,12 +1068,17 @@ private fun LazyGridItemScope.TileGridCell(
         selectionState.unSelect()
         onRemoveTile(cell.tile.tileSpec)
     }
+    // The folder, the media card and the sliders are two tile rows tall in the panel, so their
+    // cells are too: shrunk into one row they preview as a miniature rather than as the panel.
+    val cellHeight =
+        if (cell.tile.tileSpec in PANEL_ELEMENT_SPECS) TileHeight * 2 + TileArrangementPadding
+        else TileHeight
     InteractiveTileContainer(
         tileState = tileState,
         resizingState = resizingState,
         modifier =
             modifier
-                .height(TileHeight)
+                .height(cellHeight)
                 .fillMaxWidth()
                 .animateItem(placementSpec = placementSpec)
                 .tileTestTag(cell.isIcon),
