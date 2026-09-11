@@ -43,6 +43,7 @@ import com.android.systemui.qs.panels.ui.viewmodel.AvailableEditActions
 import com.android.systemui.qs.composefragment.secureIntSetting
 import com.android.systemui.qs.panels.ui.viewmodel.EditModeViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.EditTileViewModel
+import androidx.compose.ui.unit.Dp
 import com.android.systemui.qs.pipeline.shared.TileSpec
 import com.android.systemui.qs.shared.model.TileCategory
 import com.android.systemui.qs.shared.style.QsPanelStyle
@@ -76,6 +77,8 @@ fun TileSpec.panelSpanSetting(): String? =
 val LocalPanelElementPreview =
     compositionLocalOf<Map<TileSpec, @Composable () -> Unit>> { emptyMap() }
 
+val LocalPanelElementHeight = compositionLocalOf<Map<TileSpec, Dp>> { emptyMap() }
+
 /**
  * What the panel puts above the tiles, for styles that fix it in place. Null for styles where the
  * user arranges those elements themselves and they appear in the grid instead.
@@ -87,10 +90,12 @@ fun EditMode(
     viewModel: EditModeViewModel,
     modifier: Modifier = Modifier,
     previews: Map<TileSpec, @Composable () -> Unit> = emptyMap(),
+    previewHeights: Map<TileSpec, Dp> = emptyMap(),
     headerPreview: (@Composable () -> Unit)? = null,
 ) {
     CompositionLocalProvider(
         LocalPanelElementPreview provides previews,
+        LocalPanelElementHeight provides previewHeights,
         LocalQsHeaderPreview provides headerPreview,
     ) {
         EditModeContent(viewModel, modifier)
@@ -156,8 +161,8 @@ private fun ContentResolver.editIndex(spec: TileSpec) =
         this,
         spec.editIndexSetting(),
         when (spec) {
-            FOLDER_SPEC -> 0
-            MEDIA_SPEC -> 1
+            MEDIA_SPEC -> 0
+            FOLDER_SPEC -> 1
             else -> 2
         },
     )

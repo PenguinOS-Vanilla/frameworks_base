@@ -113,6 +113,13 @@ const val SETTING_QS_FOLDER_POSITION = "qs_connectivity_folder_position"
 const val SETTING_QS_MEDIA_POSITION = "qs_media_position"
 
 /** Beside the sliders in the header. Only possible at half width. */
+@Composable
+fun qsModuleHeight(rows: Int): Dp {
+    val tile = dimensionResource(id = R.dimen.common_tile_default_tile_height)
+    val gap = dimensionResource(id = R.dimen.qs_tile_margin_vertical)
+    return tile * rows + gap * (rows - 1)
+}
+
 const val POSITION_HEADER = -1
 const val POSITION_ABOVE_GRID = 0
 const val POSITION_BELOW_GRID = 1
@@ -122,6 +129,8 @@ const val SETTING_QS_MEDIA_SPAN = "qs_media_span"
 const val SETTING_QS_SLIDERS_POSITION = "qs_sliders_position"
 /** Width of the sliders in the panel: 1 for half, 2 for full. */
 const val SETTING_QS_SLIDERS_SPAN = "qs_sliders_span"
+
+const val DEFAULT_SLIDERS_SPAN = 2
 /** Media card style: 0 keeps the stock player, 1 uses the compact artwork card. */
 const val SETTING_QS_MEDIA_STYLE = "qs_media_style"
 
@@ -289,7 +298,7 @@ private fun ConnectivityFolderContent(
                 // Always fill the slot: hugging the content left a gap to the sliders far wider
                 // than the gap between tiles, which read as misaligned.
                 .fillMaxWidth()
-                .thenIf(compactHeight != null) { Modifier.aspectRatio(1f) }
+                .thenIf(compactHeight != null) { Modifier.height(compactHeight!!) }
                 .clip(RoundedCornerShape(28.dp))
                 .background(glassSurface())
                 .padding(CardPadding),
@@ -612,14 +621,14 @@ fun connectivityFolderEnabled(): Boolean {
     val resolver = LocalContext.current.contentResolver
     var enabled by remember {
         mutableStateOf(
-            Settings.Secure.getInt(resolver, SETTING_QS_CONNECTIVITY_FOLDER, 0) != 0
+            Settings.Secure.getInt(resolver, SETTING_QS_CONNECTIVITY_FOLDER, 1) != 0
         )
     }
     DisposableEffect(resolver) {
         val observer =
             object : ContentObserver(Handler(Looper.getMainLooper())) {
                 override fun onChange(selfChange: Boolean) {
-                    enabled = Settings.Secure.getInt(resolver, SETTING_QS_CONNECTIVITY_FOLDER, 0) != 0
+                    enabled = Settings.Secure.getInt(resolver, SETTING_QS_CONNECTIVITY_FOLDER, 1) != 0
                 }
             }
         resolver.registerContentObserver(
