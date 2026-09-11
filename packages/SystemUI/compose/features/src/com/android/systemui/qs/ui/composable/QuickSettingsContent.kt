@@ -81,8 +81,10 @@ import com.android.systemui.qs.panels.ui.compose.SLIDERS_SPEC
 import com.android.systemui.qs.pipeline.shared.TileSpec
 import com.android.systemui.qs.composefragment.SETTING_QS_MEDIA_STYLE
 import com.android.systemui.qs.composefragment.SETTING_QS_SLIDERS_POSITION
+import com.android.systemui.qs.composefragment.DEFAULT_SLIDERS_SPAN
 import com.android.systemui.qs.composefragment.SETTING_QS_SLIDERS_SPAN
 import com.android.systemui.qs.composefragment.SETTING_QS_MEDIA_SPAN
+import com.android.systemui.qs.composefragment.qsModuleHeight
 import com.android.systemui.qs.composefragment.secureIntSetting
 import com.android.systemui.qs.composefragment.VolumeLayout
 import com.android.systemui.qs.composefragment.ui.GridAnchor
@@ -273,7 +275,7 @@ private fun ContentScope.PenguinQuickSettingsContent(
     // the sliders line up instead of each hugging its own content.
     val headerHeight = dimensionResource(id = R.dimen.common_tile_default_tile_height)
     val slidersPosition = secureIntSetting(SETTING_QS_SLIDERS_POSITION, POSITION_HEADER)
-    val slidersSpan = secureIntSetting(SETTING_QS_SLIDERS_SPAN, 1)
+    val slidersSpan = secureIntSetting(SETTING_QS_SLIDERS_SPAN, DEFAULT_SLIDERS_SPAN)
     // Standing sliders are two tile rows tall, the same as the compact folder, so a half width
     // pair of them lines up with whatever it shares its row with.
     val standingSliderHeight =
@@ -283,9 +285,11 @@ private fun ContentScope.PenguinQuickSettingsContent(
     val slidersInHeader = false
     val folderPosition = secureIntSetting(SETTING_QS_FOLDER_POSITION, POSITION_HEADER)
     val mediaPosition = secureIntSetting(SETTING_QS_MEDIA_POSITION, POSITION_HEADER)
-    val headerShowsMedia = mediaWantsHeader && mediaPosition == POSITION_HEADER
+    val headerPairFits = mediaSpan < 2 && folderSpan < 2
+    val headerShowsMedia =
+        mediaWantsHeader && mediaPosition <= POSITION_ABOVE_GRID && headerPairFits
     val headerShowsFolder =
-        folderEnabled && folderSpan < 2 && folderPosition == POSITION_HEADER
+        folderEnabled && folderPosition <= POSITION_ABOVE_GRID && headerPairFits
     // With both in the header, media takes the left slot and the folder sits beside it.
     val headerShowsBoth = headerShowsMedia && headerShowsFolder
     // Only the header tile grid duplicates tiles out of the main grid; the folder and media do not.
@@ -323,7 +327,7 @@ private fun ContentScope.PenguinQuickSettingsContent(
                     ConnectivityFolder(
                         tiles = viewModel.tileGridViewModel.tileViewModels,
                         modifier = Modifier.element(Elements.ConnectivityFolder),
-                        compactHeight = headerHeight,
+                        compactHeight = qsModuleHeight(2),
                         // Always collapsed here; expanding takes over the whole panel.
                         expanded = false,
                         onExpandedChange = { folderExpanded = it },
@@ -341,7 +345,7 @@ private fun ContentScope.PenguinQuickSettingsContent(
                     ConnectivityFolder(
                         tiles = viewModel.tileGridViewModel.tileViewModels,
                         modifier = Modifier.element(Elements.ConnectivityFolder),
-                        compactHeight = headerHeight,
+                        compactHeight = qsModuleHeight(2),
                         expanded = false,
                         onExpandedChange = { folderExpanded = it },
                     )
@@ -397,7 +401,8 @@ private fun ContentScope.PenguinQuickSettingsContent(
                                         modifier = Modifier.element(Elements.ConnectivityFolder),
                                         // Half width keeps the 2x2 Control Centre block; only a
                                         // full width folder flattens into a single row.
-                                        compactHeight = if (folderSpan < 2) headerHeight else null,
+                                        compactHeight =
+                                            if (folderSpan < 2) qsModuleHeight(2) else null,
                                         onExpandedChange = { folderExpanded = it },
                                     )
                                 }
@@ -446,17 +451,17 @@ private fun ContentScope.PenguinQuickSettingsContent(
                     val belowElements = elementsAt(POSITION_BELOW_GRID).sortedBy { it.order }
                     // Each lone half width element needs its own tiles to sit beside; sharing them
                     // would compose the same tile twice in the scene.
-                    val aboveNeedsFiller = aboveElements.count { it.span < 2 } % 2 == 1
-                    val belowNeedsFiller = belowElements.count { it.span < 2 } % 2 == 1
                     val pool = availableTiles.map { it.spec }.filterNot { it in headerSpecs }
-                    val aboveFiller = if (aboveNeedsFiller) pool.take(2) else emptyList()
-                    val belowFiller =
-                        if (belowNeedsFiller) pool.drop(aboveFiller.size).take(2) else emptyList()
+                    val aboveSlots = panelFillerSlots(aboveElements)
+                    val belowSlots = panelFillerSlots(belowElements)
+                    val aboveFillers = List(aboveSlots) { pool.drop(it * 2).take(2) }
+                    val belowFillers =
+                        List(belowSlots) { pool.drop((aboveSlots + it) * 2).take(2) }
                     val excludeSpecs =
-                        headerSpecs + aboveFiller + belowFiller + inFolderSpecs
+                        headerSpecs + aboveFillers.flatten() + belowFillers.flatten() + inFolderSpecs
 
-                    PanelElementRows(aboveElements, gap) {
-                        FillerTiles(viewModel, aboveFiller, listening)
+                    PanelElementRows(aboveElements, gap) { slot ->
+                        FillerTiles(viewModel, aboveFillers.getOrElse(slot) { emptyList() }, listening)
                     }
                     Box {
                         // Keep the anchor composed either way: the shade -> QS transition
@@ -480,8 +485,12 @@ private fun ContentScope.PenguinQuickSettingsContent(
                                         },
                                     verticalArrangement = spacedBy(rowGap),
                                 ) {
-                                    PanelElementRows(belowElements, gap) {
-                                        FillerTiles(viewModel, belowFiller, listening)
+                                    PanelElementRows(belowElements, gap) { slot ->
+                                        FillerTiles(
+                                            viewModel,
+                                            belowFillers.getOrElse(slot) { emptyList() },
+                                            listening,
+                                        )
                                     }
                                 }
                             },
@@ -511,7 +520,7 @@ fun panelElementPreviews(
     val gap = dimensionResource(id = R.dimen.qs_tile_margin_horizontal)
     val folderSpan = secureIntSetting(SETTING_QS_FOLDER_SPAN, 1)
     val mediaSpan = secureIntSetting(SETTING_QS_MEDIA_SPAN, 1)
-    val slidersStanding = secureIntSetting(SETTING_QS_SLIDERS_SPAN, 1) < 2
+    val slidersStanding = secureIntSetting(SETTING_QS_SLIDERS_SPAN, DEFAULT_SLIDERS_SPAN) < 2
     return mapOf(
         FOLDER_SPEC to
             {
@@ -523,7 +532,7 @@ fun panelElementPreviews(
                         interactive = false,
                         // Same rule the panel follows: half width keeps the 2x2 block, full width
                         // flattens into rows.
-                        compactHeight = if (folderSpan < 2) elementHeight else null,
+                        compactHeight = if (folderSpan < 2) qsModuleHeight(2) else null,
                     )
                 }
             },
@@ -547,16 +556,6 @@ fun panelElementPreviews(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(Modifier.weight(1f)) {
-                            VolumeLayout(
-                                enable = false,
-                                horizontal = !slidersStanding,
-                                verticalCornerRadius = MyUiSliderCorner,
-                                verticalWidth = null,
-                                sliderHeight =
-                                    if (slidersStanding) standingHeight else LyingSliderHeight,
-                            )
-                        }
-                        Box(Modifier.weight(1f)) {
                             BrightnessLayout(
                                 enable = false,
                                 horizontal = !slidersStanding,
@@ -564,6 +563,18 @@ fun panelElementPreviews(
                                 verticalWidth = null,
                                 sliderHeight =
                                     if (slidersStanding) standingHeight else LyingSliderHeight,
+                                interactive = false,
+                            )
+                        }
+                        Box(Modifier.weight(1f)) {
+                            VolumeLayout(
+                                enable = false,
+                                horizontal = !slidersStanding,
+                                verticalCornerRadius = MyUiSliderCorner,
+                                verticalWidth = null,
+                                sliderHeight =
+                                    if (slidersStanding) standingHeight else LyingSliderHeight,
+                                interactive = false,
                             )
                         }
                     }
@@ -626,6 +637,20 @@ fun qsHeaderPreview(viewModel: QuickSettingsContainerViewModel): (@Composable ()
     }
 }
 
+@Composable
+fun panelElementPreviewHeights(): Map<TileSpec, Dp> {
+    val elementHeight = dimensionResource(id = R.dimen.common_tile_default_tile_height)
+    val twoRows = elementHeight * 2 + dimensionResource(id = R.dimen.qs_tile_margin_vertical)
+    val folderFull = secureIntSetting(SETTING_QS_FOLDER_SPAN, 1) >= 2
+    val mediaFull = secureIntSetting(SETTING_QS_MEDIA_SPAN, 1) >= 2
+    val slidersLying = secureIntSetting(SETTING_QS_SLIDERS_SPAN, DEFAULT_SLIDERS_SPAN) >= 2
+    return mapOf(
+        FOLDER_SPEC to if (folderFull) FolderFlatHeight else twoRows,
+        MEDIA_SPEC to if (mediaFull) PenguinMediaHeight else twoRows,
+        SLIDERS_SPEC to if (slidersLying) LyingSliderHeight else twoRows,
+    )
+}
+
 /**
  * Draws a panel element at the width the panel gives it, lets it take its own natural height, and
  * scales the result down to fit the edit cell, so the cell shows a true miniature. Laid out at cell
@@ -675,10 +700,11 @@ private fun PanelElementPreview(span: Int, content: @Composable () -> Unit) {
 private val CompactSliderHeight = 96.dp
 internal val MyUiSliderCorner = 22.dp
 private val LyingSliderHeight = 56.dp
+private val FolderFlatHeight = 92.dp
 private val PenguinMediaHeight = 132.dp
 
 /** [order] is where the element was dropped in edit mode, so rows follow that arrangement. */
-private class PanelElement(
+internal class PanelElement(
     val span: Int,
     val order: Int,
     /** Half width and alone on its row, this one sits after the filler rather than before it. */
@@ -690,22 +716,53 @@ private class PanelElement(
  * Lays out the panel elements that share a slot: full width ones take a row each, half width ones
  * pair up, so the width chosen in edit mode is visible outside the header too.
  */
+internal fun panelFillerSlots(elements: List<PanelElement>): Int {
+    var slots = 0
+    var index = 0
+    while (index < elements.size) {
+        if (elements[index].span >= 2) {
+            index++
+            continue
+        }
+        val paired = elements.getOrNull(index + 1)?.span?.let { it < 2 } ?: false
+        if (!paired) slots++
+        index += if (paired) 2 else 1
+    }
+    return slots
+}
+
 @Composable
-private fun PanelElementRows(
+internal fun PanelElementRows(
     elements: List<PanelElement>,
     gap: Dp,
-    filler: @Composable () -> Unit = {},
+    filler: @Composable (slot: Int) -> Unit = {},
 ) {
-    elements.filter { it.span >= 2 }.forEach { Box(Modifier.fillMaxWidth()) { it.content() } }
-    elements.filter { it.span < 2 }.chunked(2).forEach { pair ->
+    var slot = 0
+    var index = 0
+    while (index < elements.size) {
+        val element = elements[index]
+        if (element.span >= 2) {
+            Box(Modifier.fillMaxWidth()) { element.content() }
+            index++
+            continue
+        }
+        val partner = elements.getOrNull(index + 1)?.takeIf { it.span < 2 }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = spacedBy(gap)) {
             // A half width element on its own would leave the rest of the row empty. Which side
             // the filler takes matters: QQS carries the standing sliders in its header row's right
             // half, and putting them left here would fly them across the panel as it expands.
-            if (pair.size == 1 && pair[0].alignEnd) Box(Modifier.weight(1f)) { filler() }
-            pair.forEach { element -> Box(Modifier.weight(1f)) { element.content() } }
-            if (pair.size == 1 && !pair[0].alignEnd) Box(Modifier.weight(1f)) { filler() }
+            val fillerSlot = slot
+            if (partner == null && element.alignEnd) {
+                Box(Modifier.weight(1f)) { filler(fillerSlot) }
+            }
+            Box(Modifier.weight(1f)) { element.content() }
+            partner?.let { Box(Modifier.weight(1f)) { it.content() } }
+            if (partner == null && !element.alignEnd) {
+                Box(Modifier.weight(1f)) { filler(fillerSlot) }
+            }
         }
+        if (partner == null) slot++
+        index += if (partner != null) 2 else 1
     }
 }
 
@@ -777,7 +834,7 @@ private fun ContentScope.QsStandingSliders(sliderHeight: Dp, gap: Dp) {
             horizontalArrangement = spacedBy(gap),
         ) {
             Box(Modifier.weight(1f)) {
-                VolumeLayout(
+                BrightnessLayout(
                     enable = interactable,
                     verticalCornerRadius = MyUiSliderCorner,
                     verticalWidth = null,
@@ -785,7 +842,7 @@ private fun ContentScope.QsStandingSliders(sliderHeight: Dp, gap: Dp) {
                 )
             }
             Box(Modifier.weight(1f)) {
-                BrightnessLayout(
+                VolumeLayout(
                     enable = interactable,
                     verticalCornerRadius = MyUiSliderCorner,
                     verticalWidth = null,

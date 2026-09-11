@@ -171,6 +171,7 @@ import com.android.systemui.qs.panels.shared.model.SizedTileImpl
 import com.android.systemui.qs.panels.ui.compose.DragAndDropState
 import com.android.systemui.qs.panels.ui.compose.DragType
 import com.android.systemui.qs.panels.ui.compose.EditTileListState
+import com.android.systemui.qs.panels.ui.compose.LocalPanelElementHeight
 import com.android.systemui.qs.panels.ui.compose.LocalPanelElementPreview
 import com.android.systemui.qs.panels.ui.compose.LocalQsHeaderPreview
 import com.android.systemui.qs.panels.ui.compose.PANEL_ELEMENT_SPECS
@@ -617,13 +618,21 @@ private fun CurrentTilesGrid(
 ) {
     val currentListState by rememberUpdatedState(listState)
     val totalRows = listState.tiles.lastOrNull()?.row ?: 0
-    // Every row holding a panel element is a tile row taller than the rest.
-    val panelRows =
+    val panelHeights = LocalPanelElementHeight.current
+    val defaultPanelHeight = tileHeight() * 2 + TileArrangementPadding
+    val panelRowsExtra =
         listState.tiles
             .filterIsInstance<TileGridCell>()
             .filter { it.tile.tileSpec in PANEL_ELEMENT_SPECS }
-            .map { it.row }
-            .toSet()
+            .groupBy { it.row }
+            .values
+            .fold(0.dp) { acc, cells ->
+                val tallest =
+                    cells.maxOf {
+                        (panelHeights[it.tile.tileSpec] ?: defaultPanelHeight).value
+                    }
+                acc + (tallest.dp - tileHeight()).coerceAtLeast(0.dp)
+            }
     val totalHeight by
         animateDpAsState(
             gridHeight(
@@ -631,7 +640,7 @@ private fun CurrentTilesGrid(
                 tileHeight(),
                 TileArrangementPadding,
                 CurrentTilesGridPadding,
-            ) + (tileHeight() + TileArrangementPadding) * panelRows.size,
+            ) + panelRowsExtra,
             label = "QSEditCurrentTilesGridHeight",
         )
     val gridState = rememberLazyGridState()
@@ -682,7 +691,9 @@ private fun CurrentTilesGrid(
                     with(resizingOperation) {
                         // Commit the new size of the tile IF the size changed. Do this check before
                         // a snapshot is taken to avoid saving an unnecessary snapshot
-                        val isIcon = spec !in listState.largeTilesSpecs
+                        val isIcon =
+                            if (spec in PANEL_ELEMENT_SPECS) spec !in listState.fullWidthSpecs
+                            else spec !in listState.largeTilesSpecs
                         if (isIcon != toIcon) {
                             onEditAction(EditAction.ResizeTile(spec, toIcon))
                         }
@@ -951,7 +962,12 @@ private fun LazyGridItemScope.TileGridCell(
 ) {
     val stateDescription = stringResource(id = R.string.accessibility_qs_edit_position, index + 1)
     val tileState by rememberTileState(cell.tile, selectionState)
-    val resizingState = rememberResizingState(cell.tile.tileSpec, cell.isIcon)
+    // The folder, the media card and the sliders are two tile rows tall in the panel, so their
+    // cells are too: shrunk into one row they preview as a miniature rather than as the panel.
+    val isPanelElement = cell.tile.tileSpec in PANEL_ELEMENT_SPECS
+    val smallSpan = if (isPanelElement) largeTilesSpan else 1
+    val isSmall = cell.width <= smallSpan
+    val resizingState = rememberResizingState(cell.tile.tileSpec, isSmall)
 
     if (tileState == TileState.Selected) {
         // If the tile is selected, listen to new target values from the draggable anchor to toggle
@@ -989,7 +1005,7 @@ private fun LazyGridItemScope.TileGridCell(
             .map { layoutInfo ->
                 layoutInfo.visibleItemsInfo
                     .find { it.key == cell.key }
-                    ?.let { QSDragAnchorsData(it.span == 1, it.size.width) }
+                    ?.let { QSDragAnchorsData(it.span <= smallSpan, it.size.width) }
             }
             .filterNotNull()
             .distinctUntilChanged()
@@ -1020,11 +1036,13 @@ private fun LazyGridItemScope.TileGridCell(
         selectionState.unSelect()
         onRemoveTile(cell.tile.tileSpec)
     }
-    // The folder, the media card and the sliders are two tile rows tall in the panel, so their
-    // cells are too: shrunk into one row they preview as a miniature rather than as the panel.
-    val isPanelElement = cell.tile.tileSpec in PANEL_ELEMENT_SPECS
     val cellHeight =
-        if (isPanelElement) TileHeight * 2 + TileArrangementPadding else TileHeight
+        if (isPanelElement) {
+            LocalPanelElementHeight.current[cell.tile.tileSpec]
+                ?: (TileHeight * 2 + TileArrangementPadding)
+        } else {
+            TileHeight
+        }
     InteractiveTileContainer(
         tileState = tileState,
         resizingState = resizingState,
@@ -1089,7 +1107,7 @@ private fun LazyGridItemScope.TileGridCell(
                             // Don't allow for resizing during placement mode
                             actions.add(
                                 CustomAccessibilityAction(toggleSizeLabel) {
-                                    onResize(FinalResizeOperation(cell.tile.tileSpec, !cell.isIcon))
+                                    onResize(FinalResizeOperation(cell.tile.tileSpec, !isSmall))
                                     true
                                 }
                             )
@@ -1118,7 +1136,7 @@ private fun LazyGridItemScope.TileGridCell(
                     color = { colors.background },
                 )
                 .keyboardShortcuts(cell.tile.tileSpec, selectionState) {
-                    onResize(FinalResizeOperation(cell.tile.tileSpec, !cell.isIcon))
+                    onResize(FinalResizeOperation(cell.tile.tileSpec, !isSmall))
                 }
                 .thenIf(isSelectable) { selectableModifier }
         ) {
