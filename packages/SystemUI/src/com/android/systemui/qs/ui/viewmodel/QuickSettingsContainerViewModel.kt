@@ -22,6 +22,7 @@ import com.android.systemui.display.data.repository.DisplayTypeRepository
 import com.android.systemui.lifecycle.HydratedActivatable
 import com.android.systemui.media.controls.domain.pipeline.interactor.MediaCarouselInteractor
 import com.android.systemui.media.controls.ui.controller.MediaHierarchyManager.Companion.LOCATION_QS
+import com.android.systemui.media.remedia.domain.interactor.MediaInteractor
 import com.android.systemui.media.remedia.ui.compose.MediaUiBehavior
 import com.android.systemui.media.remedia.ui.viewmodel.MediaCarouselVisibility
 import com.android.systemui.media.remedia.ui.viewmodel.MediaViewModel
@@ -54,6 +55,7 @@ constructor(
     val editModeButtonViewModelFactory: EditModeButtonViewModel.Factory,
     val detailsViewModel: DetailsViewModel,
     private val mediaCarouselInteractor: MediaCarouselInteractor,
+    private val mediaInteractor: MediaInteractor,
     val mediaViewModelFactory: MediaViewModel.Factory,
     mediaInRowInLandscapeViewModelFactory: MediaInRowInLandscapeViewModel.Factory,
     @ShadeDisplayAware shadeDisplayTypeRepository: DisplayTypeRepository,
@@ -81,6 +83,9 @@ constructor(
     val tileGridViewModel = tileGridViewModelFactory.create()
 
     val showMedia: Boolean by mediaCarouselInteractor.hasAnyMedia.hydratedStateOf()
+
+    val hasMediaCards: Boolean
+        get() = mediaInteractor.hasAnyMedia
 
     val showMediaInRow: Boolean
         get() = qsMediaInRowViewModel.shouldMediaShowInRow

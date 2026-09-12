@@ -112,6 +112,10 @@ const val SETTING_QS_FOLDER_POSITION = "qs_connectivity_folder_position"
 /** Where the media player sits, using the same positions as the folder. */
 const val SETTING_QS_MEDIA_POSITION = "qs_media_position"
 
+object ConnectivityFolderExpansion {
+    var expanded by mutableStateOf(false)
+}
+
 /** Beside the sliders in the header. Only possible at half width. */
 @Composable
 fun qsModuleHeight(rows: Int): Dp {
