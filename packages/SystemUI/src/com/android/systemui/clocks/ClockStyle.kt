@@ -4,12 +4,22 @@
  */
 package com.android.systemui.clocks
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.Keyframe
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
+import android.graphics.Color.colorToHSV
+import android.graphics.Color.HSVToColor
+import android.graphics.LinearGradient
+import android.graphics.Shader
 import android.graphics.Typeface
+import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
 import android.os.UserHandle
@@ -32,6 +42,9 @@ import com.android.systemui.media.MediaSessionManager
 import com.android.systemui.plugins.statusbar.StatusBarStateController
 import com.android.systemui.res.R
 import com.android.systemui.tuner.TunerService
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 class ClockStyle @JvmOverloads constructor(
     context: Context,
@@ -57,6 +70,16 @@ class ClockStyle @JvmOverloads constructor(
     private var clockOpacity = DEFAULT_OPACITY
     private var clockFrameMarginTop = DEFAULT_MARGIN_TOP
     private var clockSizeScale = DEFAULT_CLOCK_SIZE
+    private var clockFrameMarginStart = DEFAULT_MARGIN_START
+
+    private var gradientEnabled = false
+    private var gradientColorStart = DEFAULT_GRADIENT_COLOR_START
+    private var gradientColorEnd = DEFAULT_GRADIENT_COLOR_END
+    private var gradientAnchorY = DEFAULT_GRADIENT_ANCHOR_Y
+    private var gradientRadius = DEFAULT_GRADIENT_RADIUS
+
+    private var gradientAngleDeg = 90
+
     private var aodAnimEnabled = true
     private var albumArtColorEnabled = false
     private var currentAlbumColor: Int? = null
@@ -71,6 +94,11 @@ class ClockStyle @JvmOverloads constructor(
     private var naturalClockHeight = 0
 
     private var pendingLayoutListener: View.OnLayoutChangeListener? = null
+    private var clockSizeListener: View.OnLayoutChangeListener? = null
+
+    private var clockWobbleOnChargeEnabled = true
+    private var wobbleAnimator: ObjectAnimator? = null
+    private var wobbleGlowAnimator: android.animation.ValueAnimator? = null
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -79,6 +107,12 @@ class ClockStyle @JvmOverloads constructor(
                 Intent.ACTION_TIME_TICK,
                 Intent.ACTION_TIME_CHANGED,
                 DOZE_PULSE_ACTION -> onTimeChanged()
+                Intent.ACTION_POWER_CONNECTED -> {
+                    if (clockWobbleOnChargeEnabled && !isDozing) {
+                        startWobbleAnimation()
+                    }
+                }
+                Intent.ACTION_POWER_DISCONNECTED -> cancelWobbleAnimation()
             }
         }
     }
@@ -118,6 +152,10 @@ class ClockStyle @JvmOverloads constructor(
 
     private val mediaDataListener = object : MediaSessionManager.MediaDataListener {
         override fun onPlaybackStateChanged(state: Int) {
+            if (state != PlaybackState.STATE_PLAYING) {
+                currentAlbumColor = null
+                if (albumArtColorEnabled) applyClockColors()
+            }
         }
 
         override fun onMediaColorsChanged(color: Int) {
@@ -146,6 +184,13 @@ class ClockStyle @JvmOverloads constructor(
             CLOCK_SIZE_KEY,
             CLOCK_AOD_ANIM_KEY,
             CLOCK_ALBUM_ART_COLOR_KEY,
+            CLOCK_WOBBLE_ON_CHARGE_KEY,
+            CLOCK_FRAME_MARGIN_START_KEY,
+            CLOCK_GRADIENT_ENABLED_KEY,
+            CLOCK_GRADIENT_COLOR_START_KEY,
+            CLOCK_GRADIENT_COLOR_END_KEY,
+            CLOCK_GRADIENT_ANCHOR_Y_KEY,
+            CLOCK_GRADIENT_RADIUS_KEY,
         )
         statusBarStateController.addCallback(statusBarStateListener)
         if (albumArtColorEnabled) {
@@ -165,6 +210,8 @@ class ClockStyle @JvmOverloads constructor(
             addAction(Intent.ACTION_TIME_TICK)
             addAction(Intent.ACTION_TIME_CHANGED)
             addAction(DOZE_PULSE_ACTION)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
         }
         context.registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         callbacksRegistered = true
@@ -180,6 +227,7 @@ class ClockStyle @JvmOverloads constructor(
         handler.removeCallbacks(burnInProtectionRunnable)
         handler.removeCallbacks(aodTickRunnable)
         currentClockView?.animate()?.cancel()
+        cancelWobbleAnimation()
         removePendingLayoutListener()
         runCatching { context.unregisterReceiver(screenReceiver) }
         callbacksRegistered = false
@@ -214,7 +262,7 @@ class ClockStyle @JvmOverloads constructor(
             }
             CLOCK_FRAME_MARGIN_TOP_KEY -> {
                 clockFrameMarginTop = TunerService.parseInteger(newValue, DEFAULT_MARGIN_TOP)
-                    .coerceIn(0, 100)
+                    .coerceIn(0, 200)
                 updateClockFrameMargin()
             }
             CLOCK_SIZE_KEY -> {
@@ -237,6 +285,37 @@ class ClockStyle @JvmOverloads constructor(
                     }
                 }
                 applyClockColors()
+            }
+            CLOCK_WOBBLE_ON_CHARGE_KEY -> {
+                clockWobbleOnChargeEnabled = TunerService.parseInteger(newValue, 1) != 0
+                if (!clockWobbleOnChargeEnabled) cancelWobbleAnimation()
+            }
+            CLOCK_FRAME_MARGIN_START_KEY -> {
+                clockFrameMarginStart = TunerService.parseInteger(newValue, DEFAULT_MARGIN_START)
+                    .coerceIn(-200, 200)
+                updateClockFrameMargin()
+            }
+            CLOCK_GRADIENT_ENABLED_KEY -> {
+                gradientEnabled = TunerService.parseInteger(newValue, 0) != 0
+                applyClockColors()
+            }
+            CLOCK_GRADIENT_COLOR_START_KEY -> {
+                gradientColorStart = TunerService.parseInteger(newValue, DEFAULT_GRADIENT_COLOR_START)
+                if (gradientEnabled) applyClockColors()
+            }
+            CLOCK_GRADIENT_COLOR_END_KEY -> {
+                gradientColorEnd = TunerService.parseInteger(newValue, DEFAULT_GRADIENT_COLOR_END)
+                if (gradientEnabled) applyClockColors()
+            }
+            CLOCK_GRADIENT_ANCHOR_Y_KEY -> {
+                gradientAnchorY = TunerService.parseInteger(newValue, DEFAULT_GRADIENT_ANCHOR_Y)
+                    .coerceIn(0, 100)
+                if (gradientEnabled) applyClockColors()
+            }
+            CLOCK_GRADIENT_RADIUS_KEY -> {
+                gradientRadius = TunerService.parseInteger(newValue, DEFAULT_GRADIENT_RADIUS)
+                    .coerceIn(MIN_GRADIENT_RADIUS, MAX_GRADIENT_RADIUS)
+                if (gradientEnabled) applyClockColors()
             }
         }
     }
@@ -373,6 +452,7 @@ class ClockStyle @JvmOverloads constructor(
 
                 updateClockAppearance()
                 updateClockFrameMargin()
+                attachClockSizeListener(view)
             }
         }
 
@@ -384,18 +464,16 @@ class ClockStyle @JvmOverloads constructor(
     private fun cacheClockViews(root: View) {
         when (root) {
             is TextClock -> {
-                root.typeface?.let {
-                    root.setTag(R.id.original_typeface, it)
-                    root.typeface = it
-                }
+                root.setTag(R.id.original_typeface, root.typeface)
+                root.setTag(R.id.original_text_color, root.currentTextColor)
+                root.setTag(R.id.original_alpha, root.alpha)
                 textClocks.add(root)
                 styledTextViews.add(root)
             }
             is TextView -> {
-                root.typeface?.let {
-                    root.setTag(R.id.original_typeface, it)
-                    root.typeface = it
-                }
+                root.setTag(R.id.original_typeface, root.typeface)
+                root.setTag(R.id.original_text_color, root.currentTextColor)
+                root.setTag(R.id.original_alpha, root.alpha)
                 styledTextViews.add(root)
             }
         }
@@ -409,7 +487,13 @@ class ClockStyle @JvmOverloads constructor(
     private fun updateClockFrameMargin() {
         val clockFrame = findViewById<View?>(R.id.clock_frame) ?: return
         val params = clockFrame.layoutParams as? ViewGroup.MarginLayoutParams ?: return
-        params.topMargin = (clockFrameMarginTop * resources.displayMetrics.density).toInt()
+        val density = resources.displayMetrics.density
+        params.topMargin = (clockFrameMarginTop * density).toInt()
+        if (!isNoHorizontalMarginClock(clockStyle)) {
+            params.marginStart = (clockFrameMarginStart * density).toInt()
+        } else {
+            params.marginStart = 0
+        }
         clockFrame.layoutParams = params
     }
 
@@ -428,7 +512,9 @@ class ClockStyle @JvmOverloads constructor(
 
     private fun resolveClockColor(): Int {
         if (albumArtColorEnabled) {
-            currentAlbumColor?.let { return it }
+            currentAlbumColor?.let {
+                return boostSaturation(it)
+            }
         }
         return when (colorMode) {
             COLOR_MODE_ACCENT -> context.getColor(
@@ -439,45 +525,131 @@ class ClockStyle @JvmOverloads constructor(
         }
     }
 
+    private fun boostSaturation(color: Int, amount: Float = 0.20f): Int {
+        val hsv = FloatArray(3)
+        colorToHSV(color, hsv)
+        hsv[1] = (hsv[1] + amount).coerceAtMost(1.0f)
+        return HSVToColor(hsv)
+    }
+
+    private fun getOffsetWithinAncestor(view: View, ancestor: View): Pair<Int, Int> {
+        var offsetX = 0
+        var offsetY = 0
+        var current: View = view
+        while (current !== ancestor) {
+            offsetX += current.left
+            offsetY += current.top
+            val parent = current.parent as? View ?: break
+            current = parent
+        }
+        return offsetX to offsetY
+    }
+
+    private fun buildGradientShader(
+        width: Int,
+        height: Int,
+        offsetX: Int = 0,
+        offsetY: Int = 0,
+    ): Shader {
+        val rad = Math.toRadians(gradientAngleDeg.toDouble())
+        val dx = cos(rad).toFloat()
+        val dy = sin(rad).toFloat()
+        val cx = width / 2f
+        val cy = height * (gradientAnchorY / 100f)
+        val halfW = width / 2f
+        val halfH = height / 2f
+        val baseLen = abs(dx * halfW) + abs(dy * halfH)
+        val len = baseLen * (gradientRadius / 100f)
+        val x0 = cx - dx * len - offsetX
+        val y0 = cy - dy * len - offsetY
+        val x1 = cx + dx * len - offsetX
+        val y1 = cy + dy * len - offsetY
+        return LinearGradient(
+            x0, y0, x1, y1,
+            gradientColorStart, gradientColorEnd,
+            Shader.TileMode.CLAMP,
+        )
+    }
+
+    private fun applyGradientToView(view: TextView) {
+        val container = currentClockView ?: return
+        if (view.width <= 0 || view.height <= 0) return
+        if (container.width <= 0 || container.height <= 0) return
+        val (offsetX, offsetY) = getOffsetWithinAncestor(view, container)
+        view.paint.shader = buildGradientShader(container.width, container.height, offsetX, offsetY)
+        view.invalidate()
+    }
+
+    private fun clearGradientFromView(view: TextView) {
+        if (view.paint.shader != null) {
+            view.paint.shader = null
+            view.invalidate()
+        }
+    }
+
+    private fun attachClockSizeListener(view: View) {
+        clockSizeListener?.let { currentClockView?.removeOnLayoutChangeListener(it) }
+        val listener = View.OnLayoutChangeListener { v, l, t, r, b, ol, ot, oR, ob ->
+            if (r - l != oR - ol || b - t != ob - ot) {
+                if (gradientEnabled) applyClockColors()
+            }
+        }
+        clockSizeListener = listener
+        view.addOnLayoutChangeListener(listener)
+    }
+
     private fun applyClockColors() {
         if (isNoColorClock(clockStyle) || textClocks.isEmpty()) return
         val whiteColor = context.getColor(android.R.color.white)
+        val useGradient = gradientEnabled && !isDozing
         for (i in textClocks.indices) {
             val tc = textClocks[i]
-            if (tc.getTag(R.id.original_typeface) == null && tc.typeface != null) {
-                tc.setTag(R.id.original_typeface, tc.typeface)
-            }
-            if (tc.getTag(R.id.original_text_color) == null) {
-                tc.setTag(R.id.original_text_color, tc.currentTextColor)
-            }
             (tc.getTag(R.id.original_typeface) as? Typeface)?.let { tc.typeface = it }
-
-            val originalColor = tc.getTag(R.id.original_text_color) as Int
+            val originalColor = tc.getTag(R.id.original_text_color) as? Int ?: tc.currentTextColor
             val isWhiteOriginal = (originalColor and 0x00FFFFFF) == (whiteColor and 0x00FFFFFF)
-            tc.setTextColor(
-                when {
-                    isDozing -> whiteColor
-                    !isWhiteOriginal -> originalColor
-                    else -> resolveClockColor()
+            when {
+                isDozing -> {
+                    clearGradientFromView(tc)
+                    tc.setTextColor(whiteColor)
                 }
-            )
+                !isWhiteOriginal -> {
+                    clearGradientFromView(tc)
+                    tc.setTextColor(originalColor)
+                }
+                useGradient -> {
+                    tc.setTextColor(Color.WHITE)
+                    applyGradientToView(tc)
+                }
+                else -> {
+                    clearGradientFromView(tc)
+                    tc.setTextColor(resolveClockColor())
+                }
+            }
         }
 
         for (i in styledTextViews.indices) {
             val tv = styledTextViews[i]
             if (tv is TextClock) continue
-            if (tv.getTag(R.id.original_text_color) == null) {
-                tv.setTag(R.id.original_text_color, tv.currentTextColor)
-            }
-            val originalColor = tv.getTag(R.id.original_text_color) as Int
+            val originalColor = tv.getTag(R.id.original_text_color) as? Int ?: tv.currentTextColor
             val isWhiteOriginal = (originalColor and 0x00FFFFFF) == (whiteColor and 0x00FFFFFF)
-            tv.setTextColor(
-                when {
-                    isDozing -> whiteColor
-                    !isWhiteOriginal -> originalColor
-                    else -> resolveClockColor()
+            when {
+                isDozing -> {
+                    clearGradientFromView(tv)
+                    tv.setTextColor(whiteColor)
                 }
-            )
+                !isWhiteOriginal -> {
+                    clearGradientFromView(tv)
+                    tv.setTextColor(originalColor)
+                }
+                useGradient -> {
+                    tv.setTextColor(Color.WHITE)
+                    applyGradientToView(tv)
+                }
+                else -> {
+                    clearGradientFromView(tv)
+                    tv.setTextColor(resolveClockColor())
+                }
+            }
         }
     }
 
@@ -490,7 +662,7 @@ class ClockStyle @JvmOverloads constructor(
         view.scaleX = scale
         view.scaleY = scale
         view.pivotX = view.width / 2f
-        view.pivotY = 0f
+        view.pivotY = view.height / 2f
         disableClippingOnParents(view)
         if (naturalClockHeight == 0 && view.height > 0) {
             naturalClockHeight = view.height
@@ -535,6 +707,7 @@ class ClockStyle @JvmOverloads constructor(
                     naturalClockHeight = v.height
                 }
                 applyClockScale()
+                if (gradientEnabled) applyClockColors()
             }
         }
         pendingLayoutListener = listener
@@ -562,6 +735,147 @@ class ClockStyle @JvmOverloads constructor(
     }
 
     private fun isNoColorClock(style: Int): Boolean = NO_COLOR_CLOCKS.contains(style)
+    private fun isNoHorizontalMarginClock(style: Int): Boolean = NO_HORIZONTAL_MARGIN_CLOCKS.contains(style)
+
+    private fun startWobbleAnimation() {
+        val view = currentClockView ?: return
+        cancelWobbleAnimation()
+
+        val base = getScaleFactor()
+        view.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+
+        val density = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+        val riseAmp = WOBBLE_RISE_DP * density * base
+        val ty0 = Keyframe.ofFloat(0.00f,  0f)
+        val ty1 = Keyframe.ofFloat(0.18f, -riseAmp)
+        val ty2 = Keyframe.ofFloat(0.36f, -riseAmp * 0.44f)
+        val ty3 = Keyframe.ofFloat(0.52f, -riseAmp * 0.21f)
+        val ty4 = Keyframe.ofFloat(0.66f, -riseAmp * 0.09f)
+        val ty5 = Keyframe.ofFloat(0.78f, -riseAmp * 0.04f)
+        val ty6 = Keyframe.ofFloat(1.00f,  0f)   
+        val pvhY = PropertyValuesHolder.ofKeyframe("translationY", ty0, ty1, ty2, ty3, ty4, ty5, ty6)
+
+        val sx0 = Keyframe.ofFloat(0.00f, base * 1.000f)
+        val sx1 = Keyframe.ofFloat(0.18f, base * 0.940f)
+        val sx2 = Keyframe.ofFloat(0.36f, base * 1.018f)
+        val sx3 = Keyframe.ofFloat(0.52f, base * 0.968f)
+        val sx4 = Keyframe.ofFloat(0.66f, base * 1.008f)
+        val sx5 = Keyframe.ofFloat(1.00f, base * 1.000f)
+        val pvhSX = PropertyValuesHolder.ofKeyframe("scaleX", sx0, sx1, sx2, sx3, sx4, sx5)
+
+        val sy0 = Keyframe.ofFloat(0.00f, base * 1.000f)
+        val sy1 = Keyframe.ofFloat(0.18f, base * 1.038f)
+        val sy2 = Keyframe.ofFloat(0.36f, base * 0.984f)
+        val sy3 = Keyframe.ofFloat(0.52f, base * 1.018f)
+        val sy4 = Keyframe.ofFloat(0.66f, base * 0.994f)
+        val sy5 = Keyframe.ofFloat(1.00f, base * 1.000f)
+        val pvhSY = PropertyValuesHolder.ofKeyframe("scaleY", sy0, sy1, sy2, sy3, sy4, sy5)
+
+        wobbleAnimator = ObjectAnimator.ofPropertyValuesHolder(view, pvhY, pvhSX, pvhSY).apply {
+            duration = WOBBLE_DURATION_MS
+            interpolator = null
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    view.translationY = 0f
+                    view.scaleX = getScaleFactor()
+                    view.scaleY = getScaleFactor()
+                    view.setLayerType(View.LAYER_TYPE_NONE, null)
+                    clearWobbleGlow()
+                    wobbleAnimator = null
+                }
+                override fun onAnimationCancel(animation: Animator) {
+                    view.translationY = 0f
+                    view.scaleX = getScaleFactor()
+                    view.scaleY = getScaleFactor()
+                    view.setLayerType(View.LAYER_TYPE_NONE, null)
+                    clearWobbleGlow()
+                    wobbleAnimator = null
+                }
+            })
+            start()
+        }
+
+        val baseGlowColor = resolveClockColor()
+        val baseHsv = FloatArray(3)
+        Color.colorToHSV(baseGlowColor, baseHsv)
+        val warmS = 1.0f
+        val warmV = 1.0f
+
+        val userAlphaNorm = (clockOpacity.coerceIn(0, 100) / 100f)
+
+        wobbleGlowAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = WOBBLE_DURATION_MS
+            interpolator = null
+            addUpdateListener { anim ->
+                val animFrac = anim.animatedFraction
+                val currentTY = view.translationY
+                val fraction = (-currentTY / riseAmp).coerceIn(0f, 1f)
+                val flashAlpha: Float = when {
+                    animFrac < 0.06f -> userAlphaNorm + (1f - userAlphaNorm) * (animFrac / 0.06f)
+                    animFrac < 0.12f -> 1f - (1f - userAlphaNorm) * ((animFrac - 0.06f) / 0.06f)
+                    else -> userAlphaNorm
+                }
+
+                val lerpedHsv = floatArrayOf(
+                    baseHsv[0],
+                    baseHsv[1] + (warmS - baseHsv[1]) * fraction,
+                    baseHsv[2] + (warmV - baseHsv[2]) * fraction,
+                )
+
+                val shiftedBaseColor = Color.HSVToColor(lerpedHsv)
+                val radius = WOBBLE_GLOW_MAX_RADIUS * fraction
+                val dy = WOBBLE_GLOW_MAX_DY * (1f - fraction)
+                val alpha = (WOBBLE_GLOW_MAX_ALPHA * fraction).toInt().coerceIn(0, 255)
+                val currentGlowColor = Color.argb(
+                    alpha,
+                    Color.red(shiftedBaseColor),
+                    Color.green(shiftedBaseColor),
+                    Color.blue(shiftedBaseColor),
+                )
+
+                for (i in textClocks.indices) {
+                    val tc = textClocks[i]
+                    val origAlpha = tc.getTag(R.id.original_alpha) as? Float ?: 1f
+                    tc.alpha = flashAlpha * origAlpha
+                    tc.setShadowLayer(radius, 0f, dy, currentGlowColor)
+                }
+                for (i in styledTextViews.indices) {
+                    val tv = styledTextViews[i]
+                    if (tv !is android.widget.TextClock) {
+                        val origAlpha = tv.getTag(R.id.original_alpha) as? Float ?: 1f
+                        tv.alpha = flashAlpha * origAlpha
+                        tv.setShadowLayer(radius, 0f, dy, currentGlowColor)
+                    }
+                }
+            }
+            start()
+        }
+    }
+
+    private fun cancelWobbleAnimation() {
+        wobbleAnimator?.cancel()
+        wobbleAnimator = null
+        wobbleGlowAnimator?.cancel()
+        wobbleGlowAnimator = null
+        clearWobbleGlow()
+    }
+
+    private fun clearWobbleGlow() {
+        for (i in textClocks.indices) {
+            val tc = textClocks[i]
+            val origAlpha = tc.getTag(R.id.original_alpha) as? Float ?: 1f
+            tc.alpha = (clockOpacity / 100f) * origAlpha
+            tc.setShadowLayer(0f, 0f, 0f, 0)
+        }
+        for (i in styledTextViews.indices) {
+            val tv = styledTextViews[i]
+            if (tv !is android.widget.TextClock) {
+                val origAlpha = tv.getTag(R.id.original_alpha) as? Float ?: 1f
+                tv.alpha = (clockOpacity / 100f) * origAlpha
+                tv.setShadowLayer(0f, 0f, 0f, 0)
+            }
+        }
+    }
 
     companion object {
         private val CLOCK_LAYOUTS = intArrayOf(
@@ -660,7 +974,8 @@ class ClockStyle @JvmOverloads constructor(
             R.layout.keyguard_clock_oppo,           // 92
         )
 
-        private val NO_COLOR_CLOCKS = hashSetOf(1, 2, 25, 26, 45)
+        private val NO_COLOR_CLOCKS = hashSetOf(1, 2, 25, 26)
+        private val NO_HORIZONTAL_MARGIN_CLOCKS = hashSetOf(45, 73, 74)
 
         @JvmField val CLOCK_STYLE_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_STYLE
         @JvmField val CLOCK_COLOR_MODE_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_COLOR_MODE
@@ -670,6 +985,13 @@ class ClockStyle @JvmOverloads constructor(
         @JvmField val CLOCK_SIZE_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_SIZE
         @JvmField val CLOCK_AOD_ANIM_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_AOD_ANIM
         @JvmField val CLOCK_ALBUM_ART_COLOR_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_ALBUM_ART_COLOR
+        @JvmField val CLOCK_WOBBLE_ON_CHARGE_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_WOBBLE_ON_CHARGE
+        @JvmField val CLOCK_FRAME_MARGIN_START_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_MARGIN_START
+        @JvmField val CLOCK_GRADIENT_ENABLED_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_GRADIENT_ENABLED
+        @JvmField val CLOCK_GRADIENT_COLOR_START_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_GRADIENT_COLOR_START
+        @JvmField val CLOCK_GRADIENT_COLOR_END_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_GRADIENT_COLOR_END
+        @JvmField val CLOCK_GRADIENT_ANCHOR_Y_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_GRADIENT_ANCHOR_Y
+        @JvmField val CLOCK_GRADIENT_RADIUS_KEY: String = Settings.Secure.LOCK_SCREEN_CUSTOM_CLOCK_GRADIENT_RADIUS
 
         const val COLOR_MODE_DEFAULT = "default"
         const val COLOR_MODE_ACCENT = "accent"
@@ -685,6 +1007,14 @@ class ClockStyle @JvmOverloads constructor(
         private const val DEFAULT_CLOCK_SIZE = 100
         private const val MIN_CLOCK_SIZE = 50
         private const val MAX_CLOCK_SIZE = 150
+        private const val DEFAULT_MARGIN_START = 0
+
+        private val DEFAULT_GRADIENT_COLOR_START = 0xFF00E5FF.toInt()
+        private val DEFAULT_GRADIENT_COLOR_END = 0xFFFF2DAA.toInt()
+        private const val DEFAULT_GRADIENT_ANCHOR_Y = 50
+        private const val DEFAULT_GRADIENT_RADIUS = 100
+        private const val MIN_GRADIENT_RADIUS = 25
+        private const val MAX_GRADIENT_RADIUS = 200
 
         private const val AOD_UPDATE_INTERVAL_MILLIS = 60_000L
         private const val UPDATE_INTERVAL_MILLIS = 15_000L
@@ -695,5 +1025,11 @@ class ClockStyle @JvmOverloads constructor(
         private const val AOD_SCALE_DOWN = 0.85f
         private const val AOD_ANIM_OUT_MS = 300L
         private const val AOD_ANIM_IN_MS = 400L
+
+        private const val WOBBLE_RISE_DP = 26f
+        private const val WOBBLE_DURATION_MS = 1150L
+        private const val WOBBLE_GLOW_MAX_RADIUS = 28f
+        private const val WOBBLE_GLOW_MAX_DY = 6f
+        private const val WOBBLE_GLOW_MAX_ALPHA = 160
     }
 }
