@@ -25,6 +25,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -40,6 +41,8 @@ import com.android.systemui.qs.composefragment.SETTING_QS_SLIDERS_POSITION
 import com.android.systemui.qs.composefragment.SETTING_QS_SLIDERS_SPAN
 import com.android.systemui.qs.composefragment.SETTING_QS_MEDIA_POSITION
 import com.android.systemui.qs.panels.ui.viewmodel.AvailableEditActions
+import com.android.systemui.qs.composefragment.connectivityFolderEnabled
+import com.android.systemui.qs.composefragment.connectivityFolderSpecs
 import com.android.systemui.qs.composefragment.secureIntSetting
 import com.android.systemui.qs.panels.ui.viewmodel.EditModeViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.EditTileViewModel
@@ -59,6 +62,31 @@ val MEDIA_SPEC = TileSpec.create("penguin_media_player")
 val SLIDERS_SPEC = TileSpec.create("penguin_sliders")
 
 val PANEL_ELEMENT_SPECS = setOf(FOLDER_SPEC, MEDIA_SPEC, SLIDERS_SPEC)
+
+const val PANEL_FILLER_COLUMNS = 2
+
+private const val PANEL_FILLER_ROWS = 2
+
+fun panelFillerTiles(pool: List<TileSpec>, largeTiles: Set<TileSpec>): List<TileSpec> {
+    val taken = mutableListOf<TileSpec>()
+    var row = 0
+    var used = 0
+    for (spec in pool) {
+        val width = if (spec in largeTiles) PANEL_FILLER_COLUMNS else 1
+        if (used + width > PANEL_FILLER_COLUMNS) {
+            row++
+            used = 0
+        }
+        if (row >= PANEL_FILLER_ROWS) break
+        taken.add(spec)
+        used += width
+        if (used >= PANEL_FILLER_COLUMNS) {
+            row++
+            used = 0
+        }
+    }
+    return taken
+}
 
 /** Secure setting holding this element's width, or null if it is a real tile. */
 fun TileSpec.panelSpanSetting(): String? =
@@ -119,21 +147,44 @@ private fun EditModeContent(viewModel: EditModeViewModel, modifier: Modifier = M
             secureIntSetting(QsPanelStyle.SETTING_NAME, QsPanelStyle.Penguin.value)
         ) != QsPanelStyle.MyUi
 
+    val folderMemberSpecs =
+        if (connectivityFolderEnabled()) connectivityFolderSpecs() else emptyList()
+    val gridTiles =
+        remember(tiles, folderMemberSpecs) {
+            tiles.filterNot { it.isCurrent && it.tileSpec.spec in folderMemberSpecs }
+        }
     Column(modifier) {
         gridLayout.EditTileGrid(
-            if (panelElementsEditable) tiles.withPanelElements(resolver) else tiles,
+            if (panelElementsEditable) gridTiles.withPanelElements(resolver) else gridTiles,
             Modifier,
             viewModel::addTile,
             { spec -> if (spec.isPanelElement()) resolver.park(spec) else viewModel.removeTile(spec) },
             { specs ->
+                val merged = specs + resolver.folderTilesToKeep(folderMemberSpecs, specs)
                 viewModel.setTiles(
-                    if (panelElementsEditable) specs.stripPanelElements(resolver) else specs
+                    if (panelElementsEditable) merged.stripPanelElements(resolver) else merged
                 )
             },
             viewModel::stopEditing,
         )
     }
 }
+
+/**
+ * The folder's own tiles, which edit mode hides because the folder shows them. They are still part
+ * of the tile list, so a commit has to write them back or they are lost. Read from the setting
+ * rather than the edit list, which lags a commit by a recomposition.
+ */
+private fun ContentResolver.folderTilesToKeep(
+    folderMemberSpecs: List<String>,
+    written: List<TileSpec>,
+): List<TileSpec> =
+    (Settings.Secure.getString(this, Settings.Secure.QS_TILES) ?: "")
+        .split(',')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && it in folderMemberSpecs }
+        .map { TileSpec.create(it) }
+        .filterNot { it in written }
 
 private fun TileSpec.isPanelElement() = this in PANEL_ELEMENT_SPECS
 
