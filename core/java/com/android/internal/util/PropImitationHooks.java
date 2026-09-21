@@ -23,6 +23,7 @@ import android.app.Application;
 import android.app.TaskStackListener;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.os.Build;
 import android.os.Binder;
@@ -503,6 +504,9 @@ public class PropImitationHooks {
         try {
             gmsUid = context.getPackageManager().getApplicationInfo(PACKAGE_GMS, 0).uid;
             dlog("shouldBypassTaskPermission: gmsUid:" + gmsUid + " callingUid:" + callingUid);
+        } catch (PackageManager.NameNotFoundException e) {
+            // Expected on builds without GMS; this runs on every task stack change.
+            return false;
         } catch (Exception e) {
             Log.e(TAG, "shouldBypassTaskPermission: unable to get gms uid", e);
             return false;
