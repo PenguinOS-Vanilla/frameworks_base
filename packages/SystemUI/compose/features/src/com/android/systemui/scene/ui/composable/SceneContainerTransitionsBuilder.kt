@@ -37,6 +37,8 @@ interface SceneContainerTransitionsBuilder {
         animateQsTilesViewModel: AnimateQsTilesViewModel,
         toBouncerTransitionViewModel: ToBouncerTransitionViewModel,
         resources: Resources,
+        /** The default Quick Settings style, which keeps AOSP's shade to QS hand-off. */
+        defaultQsStyle: Boolean = false,
     ): SceneTransitions
 }
 
@@ -53,5 +55,6 @@ class ConstantSceneContainerTransitionsBuilder(
         animateQsTilesViewModel: AnimateQsTilesViewModel,
         toBouncerTransitionViewModel: ToBouncerTransitionViewModel,
         resources: Resources,
+        defaultQsStyle: Boolean,
     ): SceneTransitions = transitions
 }
