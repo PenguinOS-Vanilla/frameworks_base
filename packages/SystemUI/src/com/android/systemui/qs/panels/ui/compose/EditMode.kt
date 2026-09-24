@@ -140,22 +140,33 @@ private fun EditModeContent(viewModel: EditModeViewModel, modifier: Modifier = M
 
     DisposableEffect(Unit) { onDispose { viewModel.stopEditing() } }
 
-    // MyUI fixes the card, the sliders and the media player in place, so editing there is about
-    // tiles only and the panel elements never join the grid.
-    val panelElementsEditable =
+    val panelStyle =
         QsPanelStyle.fromValue(
             secureIntSetting(QsPanelStyle.SETTING_NAME, QsPanelStyle.Penguin.value)
-        ) != QsPanelStyle.MyUi
+        )
+    // Only the Penguin panel places its elements in the grid. MyUI fixes the card, the sliders
+    // and the media player in place, and the default panel has none of them, so editing there is
+    // about tiles only.
+    val panelElementsEditable = panelStyle == QsPanelStyle.Penguin
 
+    // The default panel shows the connectivity tiles as ordinary tiles, not in a folder.
     val folderMemberSpecs =
-        if (connectivityFolderEnabled()) connectivityFolderSpecs() else emptyList()
+        if (panelStyle != QsPanelStyle.Default && connectivityFolderEnabled()) {
+            connectivityFolderSpecs()
+        } else {
+            emptyList()
+        }
     val gridTiles =
         remember(tiles, folderMemberSpecs) {
             tiles.filterNot { it.isCurrent && it.tileSpec.spec in folderMemberSpecs }
         }
     Column(modifier) {
         gridLayout.EditTileGrid(
-            if (panelElementsEditable) gridTiles.withPanelElements(resolver) else gridTiles,
+            if (panelElementsEditable) {
+                gridTiles.withPanelElements(resolver, connectivityFolderEnabled())
+            } else {
+                gridTiles
+            },
             Modifier,
             viewModel::addTile,
             { spec -> if (spec.isPanelElement()) resolver.park(spec) else viewModel.removeTile(spec) },
@@ -228,11 +239,13 @@ private fun ContentResolver.park(spec: TileSpec) {
  * are currently pinned to.
  */
 private fun List<EditTileViewModel>.withPanelElements(
-    resolver: ContentResolver
+    resolver: ContentResolver,
+    folderEnabled: Boolean,
 ): List<EditTileViewModel> {
     val current = filter { it.isCurrent }.toMutableList()
     val rest = filterNot { it.isCurrent }
-    PANEL_ELEMENT_SPECS.sortedBy { resolver.editIndex(it) }
+    PANEL_ELEMENT_SPECS.filter { folderEnabled || it != FOLDER_SPEC }
+        .sortedBy { resolver.editIndex(it) }
         .forEach { spec ->
             val index = resolver.editIndex(spec).coerceIn(0, current.size)
             current.add(index, spec.toEditTileViewModel())
