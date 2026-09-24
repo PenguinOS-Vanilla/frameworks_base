@@ -106,7 +106,8 @@ public class WallpaperDepthUtils {
         mLockScreenSubject.setClickable(false);
         mLockScreenSubject.setFocusable(false);
         mLockScreenSubject.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        mLockScreenSubject.setElevation(2.0f);
+        // No elevation: the order it is added in keeps it over the clock, and any elevation
+        // would also lift it over the notifications and the bouncer added after it.
     }
 
     public static WallpaperDepthUtils getInstance(Context context, Lazy<ScrimController> scrimControllerLazy) {
@@ -306,7 +307,6 @@ public class WallpaperDepthUtils {
             if (canShow) {
                 mLockScreenSubject.setAlpha(1f);
                 mLockScreenSubject.setTranslationZ(0f);
-                mLockScreenSubject.setElevation(2.0f);
                 mLockScreenSubject.invalidate();
             } else {
                 mLockScreenSubject.setTranslationZ(-100f);
