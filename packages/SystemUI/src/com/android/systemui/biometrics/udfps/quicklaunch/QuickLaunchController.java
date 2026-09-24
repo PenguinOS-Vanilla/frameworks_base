@@ -18,6 +18,7 @@ package com.android.systemui.biometrics.udfps.quicklaunch;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.hardware.biometrics.BiometricAuthenticator;
 import android.content.Intent;
 import android.content.pm.LauncherApps;
 import android.graphics.PixelFormat;
@@ -187,18 +188,33 @@ public class QuickLaunchController implements CoreStartable,
         mMainHandler = mainHandler;
     }
 
+    private void registerUdfpsCallback() {
+        try {
+            mUdfpsControllerLazy.get().addCallback(mUdfpsCallback);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed registering UdfpsController callback", e);
+        }
+    }
+
     @Override
     public void start() {
         Log.d(TAG, "QuickLaunchController started");
         mKeyguardUpdateMonitor.registerCallback(mUpdateMonitorCallback);
         mKeyguardStateController.addCallback(mKeyguardStateCallback);
-        try {
-            UdfpsController udfps = mUdfpsControllerLazy.get();
-            if (udfps != null) {
-                udfps.addCallback(mUdfpsCallback);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed registering UdfpsController callback", e);
+        // Getting UdfpsController creates it, and it then takes over fingerprint auth with a
+        // UDFPS overlay, which crashes side mounted sensors; wait until UDFPS is known to exist.
+        if (mAuthController.isUdfpsSupported()) {
+            registerUdfpsCallback();
+        } else {
+            mAuthController.addCallback(new AuthController.Callback() {
+                @Override
+                public void onAllAuthenticatorsRegistered(int modality) {
+                    if (modality == BiometricAuthenticator.TYPE_FINGERPRINT
+                            && mAuthController.isUdfpsSupported()) {
+                        registerUdfpsCallback();
+                    }
+                }
+            });
         }
         initOverlayViews();
         updateInputMonitoring();
@@ -250,7 +266,7 @@ public class QuickLaunchController implements CoreStartable,
         boolean isUdfpsDown = false;
         try {
             isUdfpsDown = mAuthController.isUdfpsFingerDown();
-            if (!isUdfpsDown) {
+            if (!isUdfpsDown && mAuthController.isUdfpsSupported()) {
                 UdfpsController udfps = mUdfpsControllerLazy.get();
                 if (udfps != null) {
                     isUdfpsDown = udfps.isFingerDown();

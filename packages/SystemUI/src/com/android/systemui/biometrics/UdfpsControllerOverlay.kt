@@ -85,7 +85,8 @@ constructor(
     private val accessibilityManager: AccessibilityManager,
     private val keyguardUpdateMonitor: KeyguardUpdateMonitor,
     private val keyguardStateController: KeyguardStateController,
-    private var udfpsDisplayModeProvider: UdfpsDisplayModeProvider,
+    // Null until AuthController has registered the sensors, which can be after the first request.
+    private var udfpsDisplayModeProvider: UdfpsDisplayModeProvider?,
     val requestId: Long,
     @RequestReason val requestReason: Int,
     private val controllerCallback: IUdfpsOverlayControllerCallback,
@@ -338,7 +339,7 @@ constructor(
             }
         }
         udfpsOverlayInteractor.stopHandlingTouches()
-        udfpsDisplayModeProvider.disable(null)
+        udfpsDisplayModeProvider?.disable(null)
         udfpsHelper?.removeDimLayer()
         getTouchOverlay()?.apply {
             if (this.parent != null) {
