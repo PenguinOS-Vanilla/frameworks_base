@@ -7110,6 +7110,41 @@ public final class Settings {
         public static final String NOTIFICATION_SOUND_VIB_SCREEN_ON = "notification_sound_vib_screen_on";
 
         /**
+         * Whether the taskbar is enabled
+         * @hide
+         */
+        @Readable
+        public static final String ENABLE_TASKBAR = "enable_taskbar";
+
+        /**
+         * Whether the gesture navbar hides automatically
+         * @hide
+         */
+        @Readable
+        public static final String GESTURE_NAVBAR_AUTO_HIDE = "gesture_navbar_auto_hide";
+
+        /**
+         * Height mode of the gesture navbar
+         * @hide
+         */
+        @Readable
+        public static final String GESTURE_NAVBAR_HEIGHT_MODE = "gesture_navbar_height_mode";
+
+        /**
+         * Length mode of the gesture navbar
+         * @hide
+         */
+        @Readable
+        public static final String GESTURE_NAVBAR_LENGTH_MODE = "gesture_navbar_length_mode";
+
+        /**
+         * Tasks the user has locked in recents
+         * @hide
+         */
+        @Readable
+        public static final String RECENTS_LOCKED_TASKS = "recents_locked_tasks";
+
+        /**
          * IMPORTANT: If you add a new public settings you also have to add it to
          * PUBLIC_SETTINGS below. If the new setting is hidden you have to add
          * it to PRIVATE_SETTINGS below. Also add a validator that can validate
