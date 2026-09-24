@@ -725,8 +725,28 @@ internal class PanelElement(
     val order: Int,
     /** Half width and alone on its row, this one sits after the filler rather than before it. */
     val alignEnd: Boolean = false,
+    /** Height in tile rows, so QQS can tell how much of its two rows an element has taken. */
+    val rows: Int = 2,
     val content: @Composable () -> Unit,
 )
+
+/** Tile rows the elements occupy once paired up, counting each row by its tallest element. */
+internal fun panelRowsUsed(elements: List<PanelElement>): Int {
+    var rows = 0
+    var index = 0
+    while (index < elements.size) {
+        val element = elements[index]
+        if (element.span >= 2) {
+            rows += element.rows
+            index++
+            continue
+        }
+        val partner = elements.getOrNull(index + 1)?.takeIf { it.span < 2 }
+        rows += maxOf(element.rows, partner?.rows ?: element.rows)
+        index += if (partner != null) 2 else 1
+    }
+    return rows
+}
 
 /**
  * Lays out the panel elements that share a slot: full width ones take a row each, half width ones
