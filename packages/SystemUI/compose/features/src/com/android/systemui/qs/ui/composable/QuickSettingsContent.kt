@@ -46,6 +46,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.animateFloatAsState
 import com.android.compose.animation.scene.content.state.TransitionState
 import androidx.compose.ui.draw.alpha
@@ -301,6 +302,9 @@ private fun ContentScope.PenguinQuickSettingsContent(
     val sheetAlpha by
         animateFloatAsState(if (sheetSettled) 1f else 0f, label = "ConnectivityFolderSheet")
     val sheetShowing = sheetAlpha > 0.01f
+    // The panel fades out before the folder fades in, so the two never show through each other.
+    val panelFade = (1f - sheetAlpha * 2f).coerceIn(0f, 1f)
+    val sheetFade = (sheetAlpha * 2f - 1f).coerceIn(0f, 1f)
 
     Box(
         modifier =
@@ -313,7 +317,7 @@ private fun ContentScope.PenguinQuickSettingsContent(
             verticalArrangement = spacedBy(dimensionResource(id = R.dimen.qs_tile_margin_vertical)),
             modifier =
                 Modifier.thenIf(sheetShowing) {
-                    Modifier.alpha(1f - sheetAlpha).gesturesDisabled()
+                    Modifier.alpha(panelFade).gesturesDisabled()
                 },
         ) {
             var listening by remember { mutableStateOf(false) }
@@ -437,7 +441,14 @@ private fun ContentScope.PenguinQuickSettingsContent(
         }
 
         if (sheetShowing) {
-            Box(Modifier.alpha(sheetAlpha)) {
+            Box(
+                Modifier.graphicsLayer {
+                    alpha = sheetFade
+                    val scale = 0.94f + 0.06f * sheetFade
+                    scaleX = scale
+                    scaleY = scale
+                }
+            ) {
                 ConnectivityFolder(
                     tiles = viewModel.tileGridViewModel.tileViewModels,
                     expanded = true,
