@@ -25,7 +25,10 @@ enum class QsPanelStyle(val value: Int) {
     Penguin(1),
 
     /** MyUI: a connectivity card beside two standing sliders, over a grid of labelled tiles. */
-    MyUi(2);
+    MyUi(2),
+
+    /** HarmonyOS Control Centre: media beside Wi-Fi and Bluetooth, round toggles, device cards. */
+    Harmony(3);
 
     companion object {
         const val SETTING_NAME = "qs_panel_style"

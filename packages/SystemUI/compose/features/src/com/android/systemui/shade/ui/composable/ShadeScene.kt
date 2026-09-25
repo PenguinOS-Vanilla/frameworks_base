@@ -19,6 +19,7 @@ package com.android.systemui.shade.ui.composable
 import com.android.systemui.qs.composefragment.BrightnessLayout
 import com.android.systemui.qs.ui.composable.qsHostTransition
 import com.android.systemui.qs.ui.composable.LocalQsHostTransition
+import com.android.systemui.qs.ui.composable.HarmonyHeader
 import com.android.systemui.qs.composefragment.ConnectivityFolder
 import com.android.systemui.qs.composefragment.MyUiGridGap
 import com.android.systemui.qs.composefragment.MyUiMediaCard
@@ -406,7 +407,9 @@ private fun ContentScope.SingleShade(
             },
             mediaAndQqsHeader = {
                 val isDefaultStyle = viewModel.panelStyle == QsPanelStyle.Default
-                val isMyUiStyle = viewModel.panelStyle == QsPanelStyle.MyUi
+                val isHarmonyStyle = viewModel.panelStyle == QsPanelStyle.Harmony
+                // HarmonyOS keeps its header block in QQS the way MyUI does, so it shares the path.
+                val isMyUiStyle = viewModel.panelStyle == QsPanelStyle.MyUi || isHarmonyStyle
                 val qqsShowsMedia =
                     !isDefaultStyle &&
                         viewModel.isQsEnabled &&
@@ -721,13 +724,18 @@ private fun ContentScope.SingleShade(
                     myUiHeader = {
                         // The same block Quick Settings puts at its top, with the same element
                         // keys, so expanding the shade morphs it in place rather than moving it.
-                        MyUiHeaderRow(
-                            tiles =
-                                viewModel.qsContainerViewModel.tileGridViewModel.tileViewModels,
-                            interactable = true,
-                        )
+                        if (isHarmonyStyle) {
+                            HarmonyHeader(viewModel.qsContainerViewModel)
+                        } else {
+                            MyUiHeaderRow(
+                                tiles =
+                                    viewModel.qsContainerViewModel.tileGridViewModel.tileViewModels,
+                                interactable = true,
+                            )
+                        }
                     },
-                    showMedia = qqsShowsMedia,
+                    // HarmonyOS carries the player inside its header block.
+                    showMedia = qqsShowsMedia && !isHarmonyStyle,
                 )
                 }
             },
