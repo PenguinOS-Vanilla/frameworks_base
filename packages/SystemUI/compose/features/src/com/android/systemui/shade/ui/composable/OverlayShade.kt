@@ -17,10 +17,12 @@
 package com.android.systemui.shade.ui.composable
 
 import android.annotation.SuppressLint
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.union
@@ -109,6 +111,17 @@ fun ContentScope.OverlayShade(
                             )
                         }
                         .width(Dimensions.PanelWidth)
+                        // On phones the panel covers the whole screen, as other OEMs' shades do,
+                        // rather than ending under its content as a floating sheet.
+                        .thenIf(isFullWidth) {
+                            // It covers the scrim too, so a tap on its empty space dismisses it
+                            // the way a tap on the scrim did.
+                            Modifier.fillMaxHeight().clickable(
+                                interactionSource = null,
+                                indication = null,
+                                onClick = onScrimClicked,
+                            )
+                        }
                         // TODO(440566878): Investigate if this can be optimized by replacing with
                         // onLayoutRectChanged.
                         .onPlaced { coordinates ->
@@ -260,7 +273,9 @@ object OverlayShade {
 
     @Composable
     fun rememberShadeExpansionMotion(isFullWidth: Boolean): VerticalExpandContainerSpec {
-        val radius = Dimensions.PanelCornerRadius
+        // A full screen panel meets the screen's own corners, so rounding its bottom as well
+        // leaves a band of a different shade along the bottom edge.
+        val radius = if (isFullWidth) 0.dp else Dimensions.PanelCornerRadius
         return remember(radius, isFullWidth) {
             VerticalExpandContainerSpec(isFloating = !isFullWidth, radius = radius)
         }
