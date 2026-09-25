@@ -46,6 +46,17 @@ interface GridLayout {
         belowTiles: @Composable () -> Unit = {},
     )
 
+    /**
+     * Hands [content] the tiles shown large and a way to resize one, for editors that lay the
+     * tiles out themselves.
+     */
+    @Composable
+    fun TileSizing(
+        content: @Composable (largeTiles: Set<TileSpec>, resize: (TileSpec, Boolean) -> Unit) -> Unit
+    ) {
+        content(emptySet()) { _, _ -> }
+    }
+
     @Composable
     fun EditTileGrid(
         tiles: List<EditTileViewModel>,
