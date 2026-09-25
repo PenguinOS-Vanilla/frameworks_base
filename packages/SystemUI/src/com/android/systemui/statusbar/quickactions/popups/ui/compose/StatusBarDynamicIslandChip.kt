@@ -553,7 +553,10 @@ private val CompactUtilityIslandWidth = 74.dp
 private val CompactUtilityConnectedIslandChromeWidth = 42.dp
 private val CompactUtilityConnectedIslandMinWidth = 132.dp
 private val CompactUtilityConnectedIslandMaxWidth = 188.dp
-private val DynamicIslandEmbeddedGapWidth = 25.dp
+private val DynamicIslandEmbeddedGapFallbackWidth = 38.dp
+private val DynamicIslandEmbeddedGapMinWidth = 34.dp
+private val DynamicIslandEmbeddedGapMaxWidth = 88.dp
+private val DynamicIslandEmbeddedGapSidePadding = 10.dp
 
 internal val DynamicIslandCompanionDiameter = 34.dp
 internal val DynamicIslandCompanionGap = 8.dp
@@ -561,6 +564,8 @@ internal val DynamicIslandCompanionGap = 8.dp
 data class DynamicIslandCutoutSpec(
     val embeddedGapWidth: Dp,
     val horizontalOffset: Dp,
+    /** The camera's centre in window pixels, or null with no top cutout. */
+    val cutoutCenterX: Float? = null,
 )
 
 @Composable
@@ -579,21 +584,43 @@ fun rememberDynamicIslandCutoutSpec(): DynamicIslandCutoutSpec {
     return with(density) {
         if (topCutout == null || rootWidthPx <= 0) {
             DynamicIslandCutoutSpec(
-                embeddedGapWidth = DynamicIslandEmbeddedGapWidth,
+                embeddedGapWidth = DynamicIslandEmbeddedGapFallbackWidth,
                 horizontalOffset = 0.dp,
             )
         } else {
+            // Sized from the real cutout: a fixed gap fits one camera hole and lets the chip's
+            // content run under a bigger one.
+            val embeddedGapWidthDp =
+                (topCutout.width().toDp() + (DynamicIslandEmbeddedGapSidePadding * 2))
+                    .coerceIn(DynamicIslandEmbeddedGapMinWidth, DynamicIslandEmbeddedGapMaxWidth)
             val horizontalOffsetDp = (topCutout.exactCenterX() - (rootWidthPx / 2f)).toDp()
             DynamicIslandCutoutSpec(
-                embeddedGapWidth = DynamicIslandEmbeddedGapWidth,
+                embeddedGapWidth = embeddedGapWidthDp,
                 horizontalOffset = horizontalOffsetDp,
+                cutoutCenterX = topCutout.exactCenterX(),
             )
         }
     }
 }
 
-private fun DisplayCutout.topBoundingRectOrNull() =
-    getBoundingRectTop().takeUnless { it.isEmpty }
+/**
+ * The top cutout's extent, from its path when there is one. Some devices' bounding rects do not
+ * match their cutout (phone2 reports 454-540 for a camera drawn at 511-569), and the island has
+ * to sit on the camera itself.
+ */
+private fun DisplayCutout.topBoundingRectOrNull(): android.graphics.Rect? {
+    val top = getBoundingRectTop().takeUnless { it.isEmpty } ?: return null
+    val path = cutoutPath ?: return top
+    val bounds = android.graphics.RectF()
+    path.computeBounds(bounds, true)
+    if (bounds.isEmpty || bounds.top > top.bottom) return top
+    return android.graphics.Rect(
+        bounds.left.toInt(),
+        bounds.top.toInt(),
+        kotlin.math.ceil(bounds.right).toInt(),
+        kotlin.math.ceil(bounds.bottom).toInt(),
+    )
+}
 
 private fun PopupContentModel.isUtilityStatusContent(): Boolean {
     return this is PopupContentModel.ScreenRecord ||
