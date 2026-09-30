@@ -2014,9 +2014,7 @@ public final class ProcessList extends ProcessListInternal
 
                 gids = computeGidsForProcess(mountExternal, uid, permGids, externalStorageAccess);
             }
-            if (gids != null && app != null && app.info != null && app.info.packageName != null
-                    && !UserHandle.isIsolated(app.uid)
-                    && (app.getHostingRecord() == null || !app.getHostingRecord().usesAppZygote())) {
+            if (gids != null) {
                 try {
                     int[] restrictedGids = com.android.server.obscura.ObscuraService.get()
                             .getRestrictedGids(app.info.packageName);
@@ -2633,15 +2631,11 @@ public final class ProcessList extends ProcessListInternal
     private boolean needsStorageDataIsolation(StorageManagerInternal storageManagerInternal,
             ProcessRecord app) {
         boolean obscuraIsolation = false;
-        if (app != null && app.info != null && app.info.packageName != null
-                && !UserHandle.isIsolated(app.uid)
-                && (app.getHostingRecord() == null || !app.getHostingRecord().usesAppZygote())) {
-            try {
-                obscuraIsolation = com.android.server.obscura.ObscuraService.get()
-                        .isDataIsolationEnabled(app.info.packageName);
-            } catch (Exception e) {
-                // ignore
-            }
+        try {
+            obscuraIsolation = com.android.server.obscura.ObscuraService.get()
+                    .isDataIsolationEnabled(app.info.packageName);
+        } catch (Exception e) {
+            // ignore
         }
         final int mountMode = app.getMountMode();
         return (mVoldAppDataIsolationEnabled || obscuraIsolation) && UserHandle.isApp(app.uid)
@@ -2674,15 +2668,11 @@ public final class ProcessList extends ProcessListInternal
             Map<String, Pair<String, Long>> allowlistedAppDataInfoMap;
             boolean bindMountAppStorageDirs = false;
             boolean obscuraDataIsolation = false;
-            if (app != null && app.info != null && app.info.packageName != null
-                    && !UserHandle.isIsolated(app.uid)
-                    && (app.getHostingRecord() == null || !app.getHostingRecord().usesAppZygote())) {
-                try {
-                    obscuraDataIsolation = com.android.server.obscura.ObscuraService.get()
-                            .isDataIsolationEnabled(app.info.packageName);
-                } catch (Exception e) {
-                    // ignore
-                }
+            try {
+                obscuraDataIsolation = com.android.server.obscura.ObscuraService.get()
+                        .isDataIsolationEnabled(app.info.packageName);
+            } catch (Exception e) {
+                // ignore
             }
             boolean bindMountAppsData = (mAppDataIsolationEnabled || obscuraDataIsolation)
                     && (UserHandle.isApp(app.uid) || UserHandle.isIsolated(app.uid)
