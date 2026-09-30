@@ -265,9 +265,5 @@ public class ObscuraService extends IObscuraManager.Stub implements IObscuraServ
         return SettingsSpoofController.getSpoofedValue(settingName);
     }
 
-    @Override
-    public void launchHiddenApp(String packageName) {
-        mAppControlController.launchHiddenApp(packageName);
-    }
 
 }
