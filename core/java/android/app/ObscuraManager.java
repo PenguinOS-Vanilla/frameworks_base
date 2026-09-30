@@ -246,12 +246,4 @@ public class ObscuraManager {
             throw e.rethrowFromSystemServer();
         }
     }
-
-    public void launchHiddenApp(@NonNull String packageName) {
-        try {
-            mService.launchHiddenApp(packageName);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
 }
