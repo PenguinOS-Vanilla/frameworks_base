@@ -17,5 +17,4 @@ public interface IObscuraService {
     String getSpoofedSetting(String callingPackage, String settingName);
     int[] getRestrictedGids(String packageName);
     boolean isDataIsolationEnabled(String packageName);
-    void launchHiddenApp(String packageName);
 }
