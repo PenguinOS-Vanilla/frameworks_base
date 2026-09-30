@@ -18,36 +18,18 @@
 
 package com.android.internal.util;
 
-import android.app.ActivityTaskManager;
 import android.app.Application;
-import android.app.TaskStackListener;
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.os.Build;
-import android.os.Binder;
-import android.os.Environment;
 import android.os.Process;
-import android.os.SystemProperties;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.internal.R;
 
-import org.json.JSONException;
-import org.json.JSONObject;
-
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -204,22 +186,11 @@ public class PropImitationHooks {
         }
     }
 
-    private static final Boolean sDisableGmsProps = SystemProperties.getBoolean(
-            "persist.sys.pihooks.disable.gms_props", false);
-
-    private static final Boolean sDisableKeyAttestationBlock = SystemProperties.getBoolean(
-            "persist.sys.pihooks.disable.gms_key_attestation_block", false);
-    private static final String DATA_FILE = "gms_certified_props.json";
-
     private static final String PACKAGE_ARCORE = "com.google.ar.core";
-    private static final String PACKAGE_FINSKY = "com.android.vending";
     private static final String PACKAGE_GMS = "com.google.android.gms";
     private static final String PROCESS_GMS_UNSTABLE = PACKAGE_GMS + ".unstable";
     private static final String PACKAGE_NETFLIX = "com.netflix.mediaclient";
     private static final String PACKAGE_GPHOTOS = "com.google.android.apps.photos";
-
-    private static final ComponentName GMS_ADD_ACCOUNT_ACTIVITY = ComponentName.unflattenFromString(
-            "com.google.android.gms/.auth.uiflows.minutemaid.MinuteMaidActivity");
 
     private static final String FEATURE_NEXUS_PRELOAD =
             "com.google.android.apps.photos.NEXUS_PRELOAD";
@@ -290,11 +261,10 @@ public class PropImitationHooks {
         "com.google.pixel.livewallpaper"
     );
 
-    private static volatile List<String> sCertifiedProps = new ArrayList<>();
     private static volatile String sStockFp, sNetflixModel;
 
     private static volatile String sProcessName;
-    private static volatile boolean sIsGms, sIsFinsky, sIsPhotos, sIsRecentPixel;
+    private static volatile boolean sIsGms, sIsPhotos, sIsRecentPixel;
     private static volatile boolean sForceTensor, sGphotosSpoof;
 
     public static void setProps(Context context) {
@@ -317,7 +287,6 @@ public class PropImitationHooks {
 
         sProcessName = processName;
         sIsGms = packageName.equals(PACKAGE_GMS) && processName.equals(PROCESS_GMS_UNSTABLE);
-        sIsFinsky = packageName.equals(PACKAGE_FINSKY);
         sIsPhotos = packageName.equals(PACKAGE_GPHOTOS);
         sIsRecentPixel = sRecentPixelPackages.contains(packageName);
 
@@ -335,19 +304,12 @@ public class PropImitationHooks {
             sGphotosSpoof = true;
         }
 
-        /* Set Certified Properties for GMSCore
-         * Set Stock Fingerprint for ARCore
+        /* Set Stock Fingerprint for ARCore
          * Set custom model for Netflix
          * Set Pixel XL for Google Photos
          * Set Recent Pixel for Tensor spoofing
          */
-        if (sIsGms || sIsFinsky) {
-            if (!android.os.Process.isIsolated()) {
-                setPlayIntegrityProps(context);
-            } else {
-                dlog("Not setting Play Integrity props in isolated process");
-            }
-        } else if (!sStockFp.isEmpty() && packageName.equals(PACKAGE_ARCORE)) {
+        if (!sStockFp.isEmpty() && packageName.equals(PACKAGE_ARCORE)) {
             dlog("Setting stock fingerprint for: " + packageName);
             setPropValue("FINGERPRINT", sStockFp);
             mapSystemProp("FINGERPRINT", sStockFp);
@@ -371,164 +333,6 @@ public class PropImitationHooks {
             setPropValue("MODEL", sNetflixModel);
             mapSystemProp("MODEL", sNetflixModel);
             sSpoofPropsForProcess = true;
-        }
-    }
-
-    private static void setPlayIntegrityProps(Context context) {
-        if (SystemProperties.getBoolean("persist.sys.pihooks.disable.gms_props", false)) {
-            dlog("GMS prop imitation is disabled by user");
-            return;
-        }
-
-        // Guard: isolated processes cannot access content providers (Settings.*).
-        if (android.os.Process.isIsolated()) {
-            dlog("Skipping setPlayIntegrityProps in isolated process");
-            return;
-        }
-
-        String savedProps = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.PIF_DATA);
-        if (savedProps == null || TextUtils.isEmpty(savedProps)) {
-            savedProps = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.FETCHED_PIF);
-        }
-
-        List<String> props = new ArrayList<>();
-        if (savedProps == null || TextUtils.isEmpty(savedProps)) {
-            dlog("Parsing props locally - fetched pif / user provided pif unavailable");
-            props.addAll(Arrays.asList(context.getResources().getStringArray(R.array.config_certifiedBuildProperties)));
-        } else {
-            dlog("Parsing props fetched / provided by user");
-            try {
-                JSONObject parsedProps = new JSONObject(savedProps);
-                if (parsedProps.has("props") && parsedProps.opt("props") instanceof JSONObject) {
-                    parsedProps = parsedProps.getJSONObject("props");
-                }
-                Iterator<String> keys = parsedProps.keys();
-                while (keys.hasNext()) {
-                    String key = keys.next();
-                    Object val = parsedProps.get(key);
-                    props.add(key + ":" + (val != null ? val.toString() : ""));
-                }
-            } catch (JSONException e) {
-                Log.e(TAG, "Error parsing JSON data", e);
-                dlog("Parsing props locally as fallback");
-                props.clear();
-                props.addAll(Arrays.asList(context.getResources().getStringArray(R.array.config_certifiedBuildProperties)));
-            }
-        }
-        sCertifiedProps = props;
-
-        if (sCertifiedProps.isEmpty()) {
-            dlog("Certified props are not set");
-            return;
-        }
-
-        final boolean was = isGmsAddAccountActivityOnTop();
-        final TaskStackListener taskStackListener = new TaskStackListener() {
-            @Override
-            public void onTaskStackChanged() {
-                final boolean is = isGmsAddAccountActivityOnTop();
-                if (is ^ was) {
-                    dlog("GmsAddAccountActivityOnTop is:" + is + " was:" + was +
-                            ", killing myself!"); // process will restart automatically later
-                    Process.killProcess(Process.myPid());
-                }
-            }
-        };
-
-        if (!was) {
-            dlog("Spoofing build for GMS / Finsky");
-            sSpoofPropsForProcess = true;
-            setCertifiedProps();
-        } else {
-            dlog("Skip spoofing build for GMS / Finsky, because GmsAddAccountActivityOnTop");
-            sSpoofPropsForProcess = false;
-        }
-
-        try {
-            ActivityTaskManager.getService().registerTaskStackListener(taskStackListener);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to register task stack listener!", e);
-        }
-    }
-
-    private static void setCertifiedProps() {
-        for (String entry : sCertifiedProps) {
-            // Each entry must be of the format FIELD:value
-            final String[] fieldAndProp = entry.split(":", 2);
-            if (fieldAndProp.length != 2) {
-                Log.e(TAG, "Invalid entry in certified props: " + entry);
-                continue;
-            }
-            setPropValue(fieldAndProp[0], fieldAndProp[1]);
-            mapSystemProp(fieldAndProp[0], fieldAndProp[1]);
-        }
-    }
-
-    private static String readFromFile(File file) {
-        StringBuilder content = new StringBuilder();
-
-        if (file.exists()) {
-            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-                String line;
-
-                while ((line = reader.readLine()) != null) {
-                    content.append(line);
-                }
-            } catch (IOException e) {
-                Log.e(TAG, "Error reading from file", e);
-            }
-        }
-        return content.toString();
-    }
-
-    private static boolean isGmsAddAccountActivityOnTop() {
-        try {
-            final ActivityTaskManager.RootTaskInfo focusedTask =
-                    ActivityTaskManager.getService().getFocusedRootTaskInfo();
-            return focusedTask != null && focusedTask.topActivity != null
-                    && focusedTask.topActivity.equals(GMS_ADD_ACCOUNT_ACTIVITY);
-        } catch (Exception e) {
-            Log.e(TAG, "Unable to get top activity!", e);
-        }
-        return false;
-    }
-
-    public static boolean shouldBypassTaskPermission(Context context) {
-        if (sDisableGmsProps) {
-            return false;
-        }
-
-        // GMS doesn't have MANAGE_ACTIVITY_TASKS permission
-        final int callingUid = Binder.getCallingUid();
-        final int gmsUid;
-        try {
-            gmsUid = context.getPackageManager().getApplicationInfo(PACKAGE_GMS, 0).uid;
-            dlog("shouldBypassTaskPermission: gmsUid:" + gmsUid + " callingUid:" + callingUid);
-        } catch (PackageManager.NameNotFoundException e) {
-            // Expected on builds without GMS; this runs on every task stack change.
-            return false;
-        } catch (Exception e) {
-            Log.e(TAG, "shouldBypassTaskPermission: unable to get gms uid", e);
-            return false;
-        }
-        return gmsUid == callingUid;
-    }
-
-    private static boolean isCallerSafetyNet() {
-        return sIsGms && Arrays.stream(Thread.currentThread().getStackTrace())
-                .anyMatch(elem -> elem.getClassName().contains("DroidGuard"));
-    }
-
-    public static void onEngineGetCertificateChain() {
-        if (sDisableKeyAttestationBlock) {
-            dlog("Key attestation blocking is disabled by user");
-            return;
-        }
-
-        // Check stack for SafetyNet or Play Integrity
-        if (isCallerSafetyNet() || sIsFinsky) {
-            dlog("Blocked key attestation sIsGms=" + sIsGms + " sIsFinsky=" + sIsFinsky);
-            throw new UnsupportedOperationException();
         }
     }
 
