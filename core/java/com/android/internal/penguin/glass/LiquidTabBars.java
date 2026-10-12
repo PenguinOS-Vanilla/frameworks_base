@@ -60,6 +60,7 @@ public final class LiquidTabBars {
     private final WeakHashMap<View, Boolean> mPadded = new WeakHashMap<>();
     private long mLastScan;
     private boolean mScanPending;
+    private boolean mWatchingWindow;
 
     private LiquidTabBars(Context context, boolean floatOverContent) {
         mContext = context.getApplicationContext() != null ? context.getApplicationContext() : context;
@@ -115,10 +116,7 @@ public final class LiquidTabBars {
         if (wait > 0) {
             if (!mScanPending) {
                 mScanPending = true;
-                root.postDelayed(() -> {
-                    mScanPending = false;
-                    if (root.isAttachedToWindow()) onLayout(root);
-                }, wait);
+                root.postDelayed(() -> rescan(root), wait);
             }
             return;
         }
@@ -136,10 +134,8 @@ public final class LiquidTabBars {
             }
             if (mComposeBar == null && !mScanPending) {
                 mScanPending = true;
-                root.postDelayed(() -> {
-                    mScanPending = false;
-                    if (root.isAttachedToWindow()) onLayout(root);
-                }, Math.max(mNextComposeScan - now, SCAN_INTERVAL_MS));
+                root.postDelayed(() -> rescan(root),
+                        Math.max(mNextComposeScan - now, SCAN_INTERVAL_MS));
             }
             return;
         }
@@ -149,6 +145,23 @@ public final class LiquidTabBars {
             reportSeen();
         } catch (RuntimeException e) {
             Log.w(TAG, "Could not restyle " + found.getClass().getName(), e);
+        }
+    }
+
+    // A window that isn't showing stops looking for a bar until it shows again.
+    private void rescan(View root) {
+        mScanPending = false;
+        if (!root.isAttachedToWindow()) return;
+        if (root.getWindowVisibility() == View.VISIBLE) {
+            onLayout(root);
+        } else if (!mWatchingWindow) {
+            mWatchingWindow = true;
+            root.getViewTreeObserver().addOnWindowVisibilityChangeListener(visibility -> {
+                if (visibility != View.VISIBLE) return;
+                root.post(() -> {
+                    if (root.isAttachedToWindow()) onLayout(root);
+                });
+            });
         }
     }
 
