@@ -137,7 +137,8 @@ interface QsTileStyle {
     val editToggleInset: Dp
 }
 
-class QsPanelsHost(val panels: QsPanels, val container: QuickSettingsContainerViewModel)
+// A data class, so that providing an equal host again does not recompose the whole panel.
+data class QsPanelsHost(val panels: QsPanels, val container: QuickSettingsContainerViewModel)
 
 val LocalQsPanels = staticCompositionLocalOf<QsPanelsHost?> { null }
 
