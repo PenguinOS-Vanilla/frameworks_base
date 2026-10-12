@@ -409,6 +409,7 @@ object LiquidGlassTune {
                 if (gen != lastGen) {
                     lastGen = gen
                     values.clear()
+                    colors.clear()
                     generation.value++
                 }
                 handler.postDelayed(this, 500)
@@ -430,10 +431,16 @@ object LiquidGlassTune {
         values.getOrPut(name) { SystemProperties.get("debug.lg.$name").toFloatOrNull() ?: Float.NaN }
             .let { if (it.isNaN()) default else it }
 
+    private val colors = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val NO_COLOR = Long.MIN_VALUE
+
     @JvmStatic
     fun color(name: String, default: Int): Int =
-        SystemProperties.get("debug.lg.$name").removePrefix("0x").removePrefix("#")
-            .toLongOrNull(16)?.toInt() ?: default
+        colors.getOrPut(name) {
+                SystemProperties.get("debug.lg.$name").removePrefix("0x").removePrefix("#")
+                    .toLongOrNull(16) ?: NO_COLOR
+            }
+            .let { if (it == NO_COLOR) default else it.toInt() }
 }
 
 val liquidGlassOn: Boolean
