@@ -85,13 +85,14 @@ object LiquidGlass {
                                 0
                         }
                         val value = mutableStateOf(read())
-                        LiquidGlassTune.start()
+                        LiquidGlassTune.setPolling(value.value)
                         resolver.registerContentObserver(
                             Settings.Secure.getUriFor(SETTING),
                             false,
                             object : ContentObserver(Handler(Looper.getMainLooper())) {
                                 override fun onChange(selfChange: Boolean) {
                                     value.value = read()
+                                    LiquidGlassTune.setPolling(value.value)
                                 }
                             },
                             UserHandle.USER_ALL,
@@ -414,9 +415,9 @@ object LiquidGlassTune {
             }
         }
 
-    internal fun start() {
+    internal fun setPolling(on: Boolean) {
         handler.removeCallbacks(poll)
-        handler.post(poll)
+        if (on) handler.post(poll)
     }
 
     val tag: String
