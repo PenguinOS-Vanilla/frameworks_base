@@ -419,8 +419,6 @@ object LiquidGlass {
     @JvmStatic
     fun drawRim(canvas: Canvas, rect: RectF, radii: FloatArray, density: Float) {
         if (rect.isEmpty) return
-        rimPath.reset()
-        rimPath.addRoundRect(rect, radii, android.graphics.Path.Direction.CW)
         drawRoundRectGlow(canvas, rect, radii, density, LiquidGlassTune.f("view_glow", 0.5f))
         val dark = LiquidGlassTune.f("edge_dark", 0.35f)
         val hair = if (dark > 0f) LiquidGlassTune.f("edge_dark_width", 0.8f) * density else 0f
