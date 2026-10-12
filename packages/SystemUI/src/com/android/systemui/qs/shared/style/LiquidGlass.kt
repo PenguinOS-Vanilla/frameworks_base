@@ -303,7 +303,7 @@ object LiquidGlass {
         return bitmap
     }
 
-    private fun drawRoundRectGlow(
+    internal fun drawRoundRectGlow(
         canvas: Canvas,
         rect: RectF,
         radii: FloatArray,
@@ -654,9 +654,27 @@ private class GlassRim(
     private val glowRound = shape.simpleCornerRadius(size, densityScope, layoutDirection)
     val corner = glowRound
     private val edge by lazy { shape.toPath(size, densityScope, layoutDirection).asAndroidPath() }
-    // Rounded shapes of one size differ only by their radius; anything else hashes its outline.
+    // Rounded outlines share one small glow mask whatever their size.
+    private val glowRadii =
+        (shape.createOutline(size, layoutDirection, densityScope) as? Outline.Rounded)?.roundRect?.let {
+            floatArrayOf(
+                it.topLeftCornerRadius.x,
+                it.topLeftCornerRadius.x,
+                it.topRightCornerRadius.x,
+                it.topRightCornerRadius.x,
+                it.bottomRightCornerRadius.x,
+                it.bottomRightCornerRadius.x,
+                it.bottomLeftCornerRadius.x,
+                it.bottomLeftCornerRadius.x,
+            )
+        }
+    // Rectangles of one size share a glow; anything else hashes its outline.
     private val glowShape =
-        if (glowRound != null) glowRound.toBits() xor 0x5EED else LiquidGlass.shapeHashOf(edge, bounds)
+        when {
+            glowRadii != null -> 0
+            glowRound != null -> glowRound.toBits() xor 0x5EED
+            else -> LiquidGlass.shapeHashOf(edge, bounds)
+        }
     private val sheenOn = LiquidGlassTune.f("sheen", 0.0f) > 0f
     private val sheen =
         if (sheenOn) {
@@ -700,7 +718,11 @@ private class GlassRim(
     fun draw(scope: ContentDrawScope) =
         with(scope) {
             drawIntoCanvas {
-                LiquidGlass.drawGlow(it.nativeCanvas, glowShape, { edge }, bounds, density, strength)
+                if (glowRadii != null) {
+                    LiquidGlass.drawRoundRectGlow(it.nativeCanvas, bounds, glowRadii, density, strength)
+                } else {
+                    LiquidGlass.drawGlow(it.nativeCanvas, glowShape, { edge }, bounds, density, strength)
+                }
             }
             if (sheen != null) drawPath(edge.asComposePath(), sheen)
             if (dark > 0f) {
