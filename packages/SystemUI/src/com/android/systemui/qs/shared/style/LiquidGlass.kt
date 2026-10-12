@@ -224,7 +224,7 @@ object LiquidGlass {
         return bitmap
     }
 
-    private fun drawRoundRectGlow(
+    internal fun drawRoundRectGlow(
         canvas: Canvas,
         rect: RectF,
         radii: FloatArray,
@@ -503,7 +503,21 @@ fun Modifier.liquidGlassRim(shape: Shape, strength: Float = 1f): Modifier =
         LiquidGlassTune.generation.value
         val bounds = RectF(0f, 0f, size.width, size.height)
         val edge = shape.toPath(size, this).asAndroidPath()
-        val glowShape = LiquidGlass.shapeHashOf(edge, bounds)
+        // Rounded outlines share one small glow mask whatever their size.
+        val glowRadii =
+            (shape.createOutline(size, layoutDirection, this) as? Outline.Rounded)?.roundRect?.let {
+                floatArrayOf(
+                    it.topLeftCornerRadius.x,
+                    it.topLeftCornerRadius.x,
+                    it.topRightCornerRadius.x,
+                    it.topRightCornerRadius.x,
+                    it.bottomRightCornerRadius.x,
+                    it.bottomRightCornerRadius.x,
+                    it.bottomLeftCornerRadius.x,
+                    it.bottomLeftCornerRadius.x,
+                )
+            }
+        val glowShape = if (glowRadii == null) LiquidGlass.shapeHashOf(edge, bounds) else 0
         val sheen =
             Brush.verticalGradient(
                 0f to Color.White.copy(alpha = LiquidGlassTune.f("sheen", 0.0f) * strength),
@@ -535,7 +549,11 @@ fun Modifier.liquidGlassRim(shape: Shape, strength: Float = 1f): Modifier =
         onDrawWithContent {
             drawContent()
             drawIntoCanvas {
-                LiquidGlass.drawGlow(it.nativeCanvas, glowShape, { edge }, bounds, density, strength)
+                if (glowRadii != null) {
+                    LiquidGlass.drawRoundRectGlow(it.nativeCanvas, bounds, glowRadii, density, strength)
+                } else {
+                    LiquidGlass.drawGlow(it.nativeCanvas, glowShape, { edge }, bounds, density, strength)
+                }
             }
             if (sheenOn) drawPath(edgePath, sheen)
             if (outer != null) drawPath(outer, Color.Black.copy(alpha = dark * strength), style = Stroke(hair))
