@@ -281,24 +281,8 @@ object LiquidGlass {
         val r = if (w < left + right) w - l else right.toFloat()
         val t = if (h < top + bottom) h * top / (top + bottom) else top.toFloat()
         val b = if (h < top + bottom) h - t else bottom.toFloat()
-        fun white(alpha: Float) = android.graphics.Color.argb(alpha * strength, 1f, 1f, 1f)
         val (x0, x1) = lightX(rect.left, rect.right)
-        roundGlowPaint.shader =
-            LinearGradient(
-                x0,
-                rect.top,
-                x1,
-                rect.bottom,
-                intArrayOf(
-                    white(LiquidGlassTune.f("glow_tl", 0.1f)),
-                    white(LiquidGlassTune.f("glow_tl_mid", 0.0f)),
-                    white(LiquidGlassTune.f("glow_mid", 0.0f)),
-                    white(LiquidGlassTune.f("glow_br_mid", 0.0f)),
-                    white(LiquidGlassTune.f("glow_br", 0.06f)),
-                ),
-                floatArrayOf(0f, 0.3f, 0.5f, 0.7f, 1f),
-                Shader.TileMode.CLAMP,
-            )
+        roundGlowPaint.shader = glowShader(x0, rect.top, x1, rect.bottom, strength)
         val mw = mask.width
         val mh = mask.height
         val xs = floatArrayOf(0f, l, w - r, w)
@@ -369,25 +353,62 @@ object LiquidGlass {
         if (LiquidGlassTune.f("light_dir", 1.0f) >= 0.5f) ((left + right) / 2).let { it to it }
         else left to right
 
+    private data class GradientKey(
+        val rim: Boolean,
+        val x0: Float,
+        val y0: Float,
+        val x1: Float,
+        val y1: Float,
+        val strength: Float,
+        val tune: String,
+    )
+
+    private val gradients = android.util.LruCache<GradientKey, Shader>(32)
+
+    private fun glowShader(x0: Float, y0: Float, x1: Float, y1: Float, strength: Float): Shader {
+        val key = GradientKey(false, x0, y0, x1, y1, strength, LiquidGlassTune.tag)
+        gradients.get(key)?.let { return it }
+        fun white(alpha: Float) = android.graphics.Color.argb(alpha * strength, 1f, 1f, 1f)
+        return LinearGradient(
+                x0,
+                y0,
+                x1,
+                y1,
+                intArrayOf(
+                    white(LiquidGlassTune.f("glow_tl", 0.1f)),
+                    white(LiquidGlassTune.f("glow_tl_mid", 0.0f)),
+                    white(LiquidGlassTune.f("glow_mid", 0.0f)),
+                    white(LiquidGlassTune.f("glow_br_mid", 0.0f)),
+                    white(LiquidGlassTune.f("glow_br", 0.06f)),
+                ),
+                floatArrayOf(0f, 0.3f, 0.5f, 0.7f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            .also { gradients.put(key, it) }
+    }
+
     @JvmStatic
     fun rimShader(left: Float, top: Float, right: Float, bottom: Float, strength: Float): Shader {
-        fun white(alpha: Float) = android.graphics.Color.argb(alpha * strength, 1f, 1f, 1f)
         val (x0, x1) = lightX(left, right)
+        val key = GradientKey(true, x0, top, x1, bottom, strength, LiquidGlassTune.tag)
+        gradients.get(key)?.let { return it }
+        fun white(alpha: Float) = android.graphics.Color.argb(alpha * strength, 1f, 1f, 1f)
         return LinearGradient(
-            x0,
-            top,
-            x1,
-            bottom,
-            intArrayOf(
-                white(LiquidGlassTune.f("rim_tl", 0.9f)),
-                white(LiquidGlassTune.f("rim_tl_mid", 0.06f)),
-                white(LiquidGlassTune.f("rim_mid", 0.02f)),
-                white(LiquidGlassTune.f("rim_br_mid", 0.04f)),
-                white(LiquidGlassTune.f("rim_br", 0.4f)),
-            ),
-            floatArrayOf(0f, 0.18f, 0.5f, 0.82f, 1f),
-            Shader.TileMode.CLAMP,
-        )
+                x0,
+                top,
+                x1,
+                bottom,
+                intArrayOf(
+                    white(LiquidGlassTune.f("rim_tl", 0.9f)),
+                    white(LiquidGlassTune.f("rim_tl_mid", 0.06f)),
+                    white(LiquidGlassTune.f("rim_mid", 0.02f)),
+                    white(LiquidGlassTune.f("rim_br_mid", 0.04f)),
+                    white(LiquidGlassTune.f("rim_br", 0.4f)),
+                ),
+                floatArrayOf(0f, 0.18f, 0.5f, 0.82f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            .also { gradients.put(key, it) }
     }
 
     private val rimPath = android.graphics.Path()
