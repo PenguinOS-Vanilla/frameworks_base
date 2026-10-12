@@ -55,6 +55,8 @@ final class LiquidTabBar implements ViewTreeObserver.OnPreDrawListener,
     private final LiquidMotion mMotion = new LiquidMotion(PRESSED_SCALE, this::onMotion);
     private final Lens mLens = new Lens();
     private final Drawable mOriginalForeground;
+    // A detached bar hands out a different observer than the one it was found under.
+    private final ViewTreeObserver mObserver;
 
     private final FloatValueHolder mOffset = new FloatValueHolder();
     private final SpringAnimation mOffsetSpring = new SpringAnimation(mOffset);
@@ -92,7 +94,8 @@ final class LiquidTabBar implements ViewTreeObserver.OnPreDrawListener,
         bar.setElevation(0f);
         bar.setOutlineProvider(null);
         bar.addOnLayoutChangeListener(this);
-        bar.getViewTreeObserver().addOnPreDrawListener(this);
+        mObserver = bar.getViewTreeObserver();
+        mObserver.addOnPreDrawListener(this);
         restyleMaterialItems();
         relayout();
     }
@@ -105,7 +108,7 @@ final class LiquidTabBar implements ViewTreeObserver.OnPreDrawListener,
         mBar.setTranslationX(0f);
         mBar.setForeground(mOriginalForeground);
         mBar.removeOnLayoutChangeListener(this);
-        mBar.getViewTreeObserver().removeOnPreDrawListener(this);
+        if (mObserver.isAlive()) mObserver.removeOnPreDrawListener(this);
         LiquidGlass.removeFrom(mBar);
         setAddedPadding(0);
         restoreItemsInset();
