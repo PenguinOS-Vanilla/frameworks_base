@@ -322,6 +322,10 @@ final class ComposeTabBar {
         private final Paint mDot = new Paint();
         private final RectF mSource = new RectF();
         private RuntimeShader mKey;
+        private float mKeyY;
+        private float mIndicatorX;
+        private float mIndicatorY;
+        private float mIndicatorReach;
         private int mGlassKey;
 
         private void drawFloating(Canvas canvas) {
@@ -378,19 +382,29 @@ final class ComposeTabBar {
             c.clipRect(mSource);
             c.drawRenderNode(mView.updateDisplayListIfDirty());
             mTabsNode.endRecording();
-            if (mKey == null) mKey = new RuntimeShader(KEY_SHADER);
-            mKey.setFloatUniform("ref", dp(3f), h / 2f);
+            float keyY = h / 2f;
+            float x = 0f;
+            float y = 0f;
+            float reach = 0f;
             if (mSelected >= 0 && mTabIds.length > 0) {
                 float tab = mSource.width() / mTabIds.length;
                 float iconX = mSource.left + (mSelected + 0.5f) * tab;
-                float x = (iconX - dp(14f) - mSource.centerX()) * scale + mCapsule.centerX() - left;
-                float y = (mSource.top + mSource.height() * 0.35f - mSource.centerY()) * scale
+                x = (iconX - dp(14f) - mSource.centerX()) * scale + mCapsule.centerX() - left;
+                y = (mSource.top + mSource.height() * 0.35f - mSource.centerY()) * scale
                         + mCapsule.centerY() - top;
-                mKey.setFloatUniform("indicator", x, y, dp(24f) * scale);
-            } else {
-                mKey.setFloatUniform("indicator", 0f, 0f, 0f);
+                reach = dp(24f) * scale;
             }
-            mTabsNode.setRenderEffect(RenderEffect.createRuntimeShaderEffect(mKey, "content"));
+            if (mKey == null || keyY != mKeyY || x != mIndicatorX || y != mIndicatorY
+                    || reach != mIndicatorReach) {
+                if (mKey == null) mKey = new RuntimeShader(KEY_SHADER);
+                mKeyY = keyY;
+                mIndicatorX = x;
+                mIndicatorY = y;
+                mIndicatorReach = reach;
+                mKey.setFloatUniform("ref", dp(3f), keyY);
+                mKey.setFloatUniform("indicator", x, y, reach);
+                mTabsNode.setRenderEffect(RenderEffect.createRuntimeShaderEffect(mKey, "content"));
+            }
             canvas.save();
             canvas.clipPath(mPath);
             drawPill(canvas, dark);
