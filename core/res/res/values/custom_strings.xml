@@ -38,7 +38,7 @@
     <string name="power_insight_notif_discharging">Discharging</string>
     
     <!-- GameSpace -->
-    <string name="gamespace_new_game_added"><xliff:g id="name" example="MyApp">%s</xliff:g> added to GameSpace</string>
+    <string name="gamespace_new_game_added"><xliff:g id="name" example="MyApp">%s</xliff:g> added to Pentas</string>
 
     <!-- Pocket Lock -->
      <string name="pocket_mode_title">Pocket mode is active</string>
