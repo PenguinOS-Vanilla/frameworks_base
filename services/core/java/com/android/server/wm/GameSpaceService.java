@@ -49,6 +49,7 @@ public class GameSpaceService extends IGameSpaceService.Stub {
 
     private final HandlerThread mBgThread = new HandlerThread("GameSpaceBg");
     private final Handler mBgHandler;
+    private final PentasSessionBinder mPentasSessions;
 
     private String mCurrentGame;
     private Runnable mPendingBoost;
@@ -61,6 +62,7 @@ public class GameSpaceService extends IGameSpaceService.Stub {
 
         mBgThread.start();
         mBgHandler = new Handler(mBgThread.getLooper());
+        mPentasSessions = new PentasSessionBinder(context, mBgHandler);
 
         mGamePackageHandler = new GamePackageHandler(context, mGameListManager, mBgHandler);
         mGamePackageHandler.registerPackageReceiver();
@@ -104,6 +106,7 @@ public class GameSpaceService extends IGameSpaceService.Stub {
 
             UiThread.getHandler().post(
                     () -> mGameStateDispatcher.dispatchGameState(true, currentGame));
+            mPentasSessions.start(currentGame);
         });
     }
 
@@ -116,6 +119,7 @@ public class GameSpaceService extends IGameSpaceService.Stub {
             UiThread.getHandler().post(
                     () -> mGameStateDispatcher.dispatchGameState(false, null));
             mGameStateDispatcher.boostGame(false);
+            mPentasSessions.stop();
         });
     }
 
